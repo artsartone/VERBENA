@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Вход | VERBENA</title>
+    <link
+      rel="icon"
+      type="image/png"
+      href="/assets/favicon/favicon-96x96.png"
+      sizes="96x96"
+    />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon/favicon.svg" />
+    <link rel="shortcut icon" href="/assets/favicon/favicon.ico" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/assets/favicon/apple-touch-icon.png"
+    />
+    <link rel="manifest" href="/assets/favicon/site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" href="/admin/admin.css"/>
+</head>
+<body class="login-page">
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-logo">VERBENA</div>
+            <h1 class="login-title">Вход в панель управления</h1>
+            <form id="loginForm" autocomplete="off">
+                <div class="form-row">
+                    <label for="username">Логин</label>
+                    <input type="text" id="username" class="form-input" placeholder="" required autocomplete="off"/>
+                </div>
+                <div class="form-row">
+                    <label for="password">Пароль</label>
+                    <input type="password" id="password" class="form-input" placeholder="" required autocomplete="off"/>
+                </div>
+                <div id="loginError" class="login-error" style="display:none"></div>
+                <button type="submit" class="btn login-btn" id="loginBtn">Войти</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        document.getElementById("loginForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("loginBtn");
+            const errEl = document.getElementById("loginError");
+            btn.disabled = true;
+            btn.textContent = "Вход...";
+            errEl.style.display = "none";
+
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        username: document.getElementById("username").value,
+                        password: document.getElementById("password").value,
+                    }),
+                });
+
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.error || "Ошибка входа");
+                }
+
+                window.location.href = "/admin";
+            } catch (err) {
+                errEl.textContent = err.message;
+                errEl.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Войти";
+            }
+        });
+    </script>
+</body>
+</html>
