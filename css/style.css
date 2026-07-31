@@ -2936,7 +2936,7 @@ html {
   border-radius: 12px;
   background: #fff;
   color: #2e2f22;
-  font-size: 15px;
+  font-size: 16px;
   font-family: "Poppins", sans-serif;
   transition:
     border-color 0.25s,
@@ -3123,7 +3123,7 @@ html {
   .modal-content--career .career-input,
   .modal-content--career .career-textarea {
     padding: 10px 14px;
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .modal-content--career .career-submit {
