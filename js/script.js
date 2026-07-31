@@ -444,47 +444,16 @@ function buildReviewCardHtml(r, index) {
 function initReviewToggle(card) {
   const toggleBtn = card.querySelector(".review-toggle-btn");
   if (!toggleBtn) return;
-  card.dataset.origHeight = card.offsetHeight + "px";
   toggleBtn.addEventListener("click", function (e) {
     e.stopPropagation();
-    const text = card.querySelector(".review-text");
     const isExpanded = card.classList.contains("expanded");
     if (isExpanded) {
-      card.style.transition = "none";
       card.classList.remove("expanded");
-      card.style.height = card.dataset.origHeight || "";
-      card.style.overflow = "";
-      card.querySelector(".review-content").style.overflow = "";
-      card.querySelector(".review-text-wrapper").style.overflow = "";
-      if (text) text.style.maxHeight = "";
-      void card.offsetHeight;
-      requestAnimationFrame(() => {
-        card.style.transition = "";
-      });
     } else {
-      card.style.transition = "none";
-      if (text) text.style.transition = "none";
-      card.style.height = "auto";
-      card.style.overflow = "visible";
-      card.querySelector(".review-content").style.overflow = "visible";
-      card.querySelector(".review-text-wrapper").style.overflow = "visible";
-      if (text) text.style.maxHeight = "none";
-      const fullHeight = card.scrollHeight;
-      const origH = card.dataset.origHeight || "520px";
-      card.style.height = origH;
-      card.style.overflow = "hidden";
-      card.querySelector(".review-content").style.overflow = "hidden";
-      card.querySelector(".review-text-wrapper").style.overflow = "hidden";
-      if (text) text.style.maxHeight = "";
-      void card.offsetHeight;
-      card.style.transition = "";
-      if (text) text.style.transition = "";
       card.classList.add("expanded");
-      requestAnimationFrame(() => {
-        card.style.height = fullHeight + "px";
-      });
     }
     this.setAttribute("aria-expanded", String(!isExpanded));
+    this.setAttribute("aria-label", isExpanded ? "Показать полностью" : "Скрыть");
   });
 }
 

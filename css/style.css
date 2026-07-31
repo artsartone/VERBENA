@@ -76,6 +76,11 @@ nav {
   color: #8e9165;
 }
 
+html, body {
+  height: 100vh;
+  height: 100dvh;
+}
+
 body {
   background: #e9eddc;
   overflow-x: hidden;
@@ -151,6 +156,7 @@ html {
     box-shadow 0.3s ease;
   box-shadow: 0 40px 80px rgba(46, 47, 34, 0.25);
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.6);
   scrollbar-width: none;
@@ -390,9 +396,11 @@ html {
 
   .modal-content {
     padding: 40px 24px 32px;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
     border-radius: 24px 24px 0 0;
     max-width: 100%;
     max-height: 88vh;
+    max-height: 88dvh;
     overflow-y: auto;
     transform: translateY(100%);
     transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -849,6 +857,7 @@ body:has(#loader:not(.hide)) {
 #page {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   opacity: 0;
@@ -922,8 +931,6 @@ button:hover {
 .hero-text {
   width: auto;
   max-width: 720px;
-  position: relative;
-  z-index: 1;
 }
 
 .hero {
@@ -1592,7 +1599,7 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
-  align-items: stretch; /* все карточки растягиваются до одинаковой высоты */
+  align-items: start;
 }
 
 .review-card {
@@ -1604,12 +1611,19 @@ button:hover {
   box-shadow: 0 14px 32px rgba(75, 82, 50, 0.1);
   overflow: hidden;
   flex-shrink: 0;
-  min-height: 480px; /* фиксированная минимальная высота — убирает прыжки */
-  height: 100%; /* растягиваем на всю высоту grid-ячейки */
+  height: 520px;
+  position: relative;
+  z-index: 1;
   transition:
     opacity 1.3s ease,
     transform 1.3s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.8s ease;
+}
+
+.review-card.expanded {
+  height: auto;
+  z-index: 10;
+  box-shadow: 0 20px 40px rgba(75, 82, 50, 0.2);
 }
 
 .review-card:hover {
@@ -1661,44 +1675,56 @@ button:hover {
   font-size: 15px;
   line-height: 1.7;
   margin: 0;
-  max-height: 100%; /* ограничиваем высотой wrapper */
   overflow: hidden;
-  transition: none; /* убираем transition для max-height */
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+}
+
+.review-card.expanded .review-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.review-card.expanded .review-text-wrapper {
+  overflow: visible;
+}
+
+.review-card.expanded .review-content {
+  overflow: visible;
 }
 
 .review-text-wrapper {
-  flex: 1; /* заполняет всё оставшееся пространство */
+  flex: 1;
   overflow: hidden;
   position: relative;
   min-height: 0;
 }
 
-.review-card[data-full-text="true"] .review-text-wrapper::after {
+/* Градиент внизу текста когда он обрезан — только для карточек с длинным текстом */
+.review-card[data-full-text="true"]:not(.expanded) .review-text-wrapper::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 48px;
+  height: 40px;
   background: linear-gradient(
     to bottom,
     rgba(248, 248, 241, 0) 0%,
-    #f8f8f1 85%
+    #f8f8f1 90%
   );
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
 .review-card.expanded .review-text-wrapper::after {
-  opacity: 0; /* когда текст раскрыт — фейд убираем */
+  opacity: 0;
 }
 
 .review-card.expanded .review-toggle-icon {
-  transform: rotate(180deg); /* стрелка переворачивается при раскрытии */
-}
-
-.review-card.expanded .review-text {
-  max-height: 2000px;
+  transform: rotate(180deg);
 }
 
 .review-text-wrapper::-webkit-scrollbar {
@@ -1957,17 +1983,11 @@ button:hover {
   }
 
   .review-card {
-    min-height: 380px;
+    height: 460px;
+  }
+
+  .review-card.expanded {
     height: auto;
-  }
-
-  .review-card:not([data-full-text="true"]) .review-text {
-    max-height: none;
-    overflow: visible;
-  }
-
-  .review-card[data-full-text="true"] .review-text {
-    max-height: 200px;
   }
 
   .review-photo-wrap {
@@ -3057,14 +3077,63 @@ html {
 }
 
 @media (max-width: 600px) {
+  /* Career-модалка открывается от центра/сверху, а не снизу как booking */
+  .modal:has(.modal-content--career) {
+    align-items: center;
+    padding: 60px 20px 20px;
+  }
+
   .modal-content--career {
-    padding: 32px 20px 28px;
+    padding: 48px 20px 24px;
+    max-height: 85vh;
+    max-height: 85dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 24px;
+    transform: scale(0.92) translateY(16px);
   }
-  .career-title {
-    font-size: 22px;
+
+  .modal.active .modal-content--career {
+    transform: scale(1) translateY(0);
   }
-  .career-subtitle {
+
+  .modal-content--career .close-btn {
+    top: 12px;
+    right: 14px;
+    z-index: 10;
+    background: rgba(142, 145, 101, 0.15);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  .modal-content--career .career-title {
+    font-size: 20px;
+    padding-right: 30px;
+  }
+
+  .modal-content--career .career-subtitle {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .modal-content--career .career-field {
+    margin-bottom: 12px;
+  }
+
+  .modal-content--career .career-input,
+  .modal-content--career .career-textarea {
+    padding: 10px 14px;
     font-size: 14px;
+  }
+
+  .modal-content--career .career-submit {
+    padding: 13px;
+    font-size: 15px;
+  }
+
+  .modal-content--career .career-note {
+    font-size: 10px;
+    margin-top: 10px;
   }
 }
 
