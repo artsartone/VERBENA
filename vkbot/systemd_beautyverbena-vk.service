@@ -1,0 +1,23 @@
+[Unit]
+Description=Beauty Verbena VK Bot
+After=network.target beautyverbena.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/workspace
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/local/bin/python -m vk.bot
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=beautyverbena-vk
+
+# Логирование в отдельный файл
+StandardOutput=append:/var/log/beautyverbena/vk-bot.log
+StandardError=append:/var/log/beautyverbena/vk-bot-error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -107,3 +107,4 @@ backend/.env
 *.tmp
 *.log
 test_*
+.vkbottle/bot-polling/240578535.json

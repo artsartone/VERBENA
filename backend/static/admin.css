@@ -105,7 +105,9 @@ body {
   padding: 0 16px 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   color: #dce0cf;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .sidebar-logo-short {
@@ -408,6 +410,11 @@ body {
 .sidebar-notify-bell.active {
   background-color: #27ae60 !important;
   filter: drop-shadow(0 0 4px rgba(39, 174, 96, 0.6));
+}
+
+.icon-database {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M12 3c-4.97 0-9 1.79-9 4s4.03 4 9 4 9-1.79 9-4-4.03-4-9-4zm0 6c-4.97 0-9-1.79-9-4v4c0 2.21 4.03 4 9 4s9-1.79 9-4v-4c0 2.21-4.03 4-9 4zm0 6c-4.97 0-9-1.79-9-4v4c0 2.21 4.03 4 9 4s9-1.79 9-4v-4c0 2.21-4.03 4-9 4z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M12 3c-4.97 0-9 1.79-9 4s4.03 4 9 4 9-1.79 9-4-4.03-4-9-4zm0 6c-4.97 0-9-1.79-9-4v4c0 2.21 4.03 4 9 4s9-1.79 9-4v-4c0 2.21-4.03 4-9 4zm0 6c-4.97 0-9-1.79-9-4v4c0 2.21 4.03 4 9 4s9-1.79 9-4v-4c0 2.21-4.03 4-9 4z'/%3E%3C/svg%3E");
 }
 
 .sidebar-notify-input {
@@ -947,7 +954,10 @@ body.role-employee .stat-card--sum {
   cursor: pointer;
   background: var(--accent);
   color: #fff;
-  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease,
+    box-shadow 0.2s ease;
   box-shadow: 0 2px 4px rgba(46, 61, 43, 0.12);
   letter-spacing: 0.01em;
   text-decoration: none;
@@ -1042,7 +1052,10 @@ body.role-employee .stat-card--sum {
   background: #fff;
   color: var(--text);
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
   box-shadow: 0 1px 3px rgba(46, 61, 43, 0.04);
   letter-spacing: 0.01em;
 }
@@ -1058,7 +1071,10 @@ body.role-employee .stat-card--sum {
   padding-right: 40px;
   cursor: pointer;
   min-width: 170px;
-  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .form-select option {
@@ -1081,7 +1097,9 @@ body.role-employee .stat-card--sum {
 .form-select:focus {
   background-color: #fcfdf9;
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(101, 116, 61, 0.1), 0 4px 16px rgba(46, 61, 43, 0.08);
+  box-shadow:
+    0 0 0 4px rgba(101, 116, 61, 0.1),
+    0 4px 16px rgba(46, 61, 43, 0.08);
 }
 
 .form-select:hover:not(:focus) {
@@ -1097,7 +1115,9 @@ body.role-employee .stat-card--sum {
 .form-select:focus,
 .form-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(101, 116, 61, 0.12), 0 2px 8px rgba(46, 61, 43, 0.06);
+  box-shadow:
+    0 0 0 3px rgba(101, 116, 61, 0.12),
+    0 2px 8px rgba(46, 61, 43, 0.06);
   background: #fdfefb;
 }
 
@@ -1531,8 +1551,6 @@ textarea.form-input {
   margin-top: 4px;
 }
 
-
-
 /* ───────── Выпадающий список выбора фильтров истории ───────── */
 .filter-dropdown {
   position: absolute;
@@ -1542,7 +1560,7 @@ textarea.form-input {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   padding: 8px 4px;
   z-index: 100;
   min-width: 160px;

@@ -155,10 +155,8 @@ function disconnectSSE() {
   }
 }
 
-// ─── Настройки уведомлений ───
 async function loadNotifySettings() {
   try {
-    // Получаем свои данные (доступно любой роли)
     const authRes = await fetch("/api/auth/me");
     if (authRes.status !== 200) {
       initNotifyToggleEvents();
@@ -171,16 +169,28 @@ async function loadNotifySettings() {
     const inputEl = document.getElementById("notifyInput");
     const tgInput = document.getElementById("notifyTelegramId");
 
-    if (me.telegram_id) {
-      toggle.checked = me.notify_enabled === 1;
-      statusEl.style.display = "none";
-      inputEl.style.display = "none";
-      tgInput.value = me.telegram_id;
-    } else {
-      toggle.checked = false;
-      statusEl.style.display = "none";
-      inputEl.style.display = "none";
-      tgInput.value = "";
+    // ... (блок с tgInput.value оставляем как есть) ...
+    if (tgInput) tgInput.value = me.telegram_id || "";
+
+    // VK-карточка
+    const vkToggle = document.getElementById("vkNotifyToggle");
+    const vkStatusEl = document.getElementById("vkNotifyStatus");
+    const vkInputEl = document.getElementById("vkNotifyInput");
+    const vkInput = document.getElementById("notifyVkId");
+
+    if (vkToggle) {
+      // ✅ ИСПРАВЛЕНО: используем !! вместо === 1
+      const vkEnabled = !!me.vk_id && !!me.vk_notify_enabled;
+      vkToggle.checked = vkEnabled;
+      vkStatusEl.style.display = "none";
+      vkInputEl.style.display = "none";
+      if (vkInput) vkInput.value = me.vk_id || "";
+    }
+
+    // TG-карточка
+    if (toggle) {
+      // ✅ ИСПРАВЛЕНО: используем !! вместо === 1
+      toggle.checked = !!me.telegram_id && !!me.notify_enabled;
     }
 
     initNotifyToggleEvents();
@@ -199,7 +209,7 @@ function initNotifyToggleEvents() {
 
   toggle.onchange = function () {
     if (this.checked) {
-      // Если ID не указан — показываем поле ввода
+      // Если Telegram ID не указан — показываем поле ввода
       if (!tgInput || !tgInput.value.trim()) {
         if (inputEl) inputEl.style.display = "block";
         if (statusEl) {
@@ -213,6 +223,29 @@ function initNotifyToggleEvents() {
       saveNotifySettings();
     }
   };
+
+  // VK-переключатель
+  const vkToggle = document.getElementById("vkNotifyToggle");
+  const vkStatusEl = document.getElementById("vkNotifyStatus");
+  const vkInputEl = document.getElementById("vkNotifyInput");
+  const vkInput = document.getElementById("notifyVkId");
+  if (vkToggle) {
+    vkToggle.onchange = function () {
+      if (this.checked) {
+        if (!vkInput || !vkInput.value.trim()) {
+          if (vkInputEl) vkInputEl.style.display = "block";
+          if (vkStatusEl) {
+            vkStatusEl.textContent = "";
+            vkStatusEl.style.display = "none";
+          }
+        } else {
+          saveNotifySettings();
+        }
+      } else {
+        saveNotifySettings();
+      }
+    };
+  }
 }
 
 async function saveNotifySettings() {
@@ -220,6 +253,13 @@ async function saveNotifySettings() {
   const telegramId = document.getElementById("notifyTelegramId").value.trim();
   const statusEl = document.getElementById("notifyStatus");
   const inputEl = document.getElementById("notifyInput");
+
+  // VK-карточка
+  const vkToggle = document.getElementById("vkNotifyToggle");
+  const vkStatusEl = document.getElementById("vkNotifyStatus");
+  const vkInputEl = document.getElementById("vkNotifyInput");
+  const vkInput = document.getElementById("notifyVkId");
+  const vkId = vkInput ? vkInput.value.trim() : "";
 
   // Валидация Telegram ID
   if (telegramId && !/^\d+$/.test(telegramId)) {
@@ -233,7 +273,17 @@ async function saveNotifySettings() {
     return;
   }
 
+  // Валидация VK ID
+  if (vkId && !/^\d+$/.test(vkId)) {
+    showToast("VK ID должен содержать только цифры", "error");
+    if (vkToggle) vkToggle.checked = false;
+    return;
+  }
+
+  // Независимые флаги: notify_enabled — для Telegram,
+  // vk_notify_enabled — для VK
   const notifyEnabled = toggle.checked ? 1 : 0;
+  const vkNotifyEnabled = vkToggle && vkToggle.checked ? 1 : 0;
 
   try {
     const res = await fetch(`/api/auth/update-notify`, {
@@ -241,13 +291,20 @@ async function saveNotifySettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         telegram_id: telegramId,
+        vk_id: vkId,
         notify_enabled: notifyEnabled,
+        vk_notify_enabled: vkNotifyEnabled,
       }),
     });
     if (!res.ok) throw new Error("Ошибка сохранения");
     showToast("Настройки уведомлений сохранены", "success");
     inputEl.style.display = "none";
     statusEl.style.display = "none";
+    if (vkInputEl) vkInputEl.style.display = "none";
+    if (vkStatusEl) vkStatusEl.style.display = "none";
+    // Синхронизируем слайдеры с реальным состоянием БД,
+    // чтобы переключатель VK был включён после сохранения
+    await loadNotifySettings();
   } catch (e) {
     showToast(e.message, "error");
     toggle.checked = !toggle.checked;
@@ -321,6 +378,7 @@ document.querySelectorAll(".sidebar-link[data-tab]").forEach((link) => {
     if (link.dataset.tab === "career") loadCareer();
     if (link.dataset.tab === "notifications") loadNotifySettings();
     if (link.dataset.tab === "profile") loadProfile();
+    if (link.dataset.tab === "data") loadDataManagement();
 
     // Закрыть мобильное меню при переходе
     if (window.innerWidth <= 768) {
@@ -633,39 +691,44 @@ async function loadCareer() {
             '" target="_blank" style="color:#b58c5c">ссылка</a>'
           : "—";
         var cover = a.cover_letter || "—";
-        var source = a.source === "tg" ? "Telegram" : "Сайт";
+        var source =
+          a.source === "tg" ? "Telegram" : a.source === "vk" ? "VK" : "Сайт";
+        var deleteBtn = `<button class="btn btn-sm btn-danger" onclick="deleteCareerApp(${a.id})" title="Удалить отклик">✕</button>`;
+
         return (
-          "<tr>" +
-          "<td>" +
+          " <tr > " +
+          " <td > " +
           a.id +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           date +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           escapeHtml(a.client_name) +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           escapeHtml(a.client_phone) +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           escapeHtml(a.experience) +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           resumeLink +
-          "</td>" +
-          '<td style="max-width:200px;white-space:normal">' +
+          " </td > " +
+          ' <td style="max-width:200px;white-space:normal" > ' +
           escapeHtml(cover) +
-          "</td>" +
-          "<td>" +
+          " </td > " +
+          " <td > " +
           source +
-          "</td>" +
-          "</tr>"
+          " </td > " +
+          " <td data-label='Действия' class='col-center col-actions'> " +
+          deleteBtn +
+          " </td > " +
+          " </tr > "
         );
       })
       .join("");
   } catch (e) {
-
     console.error("Ошибка загрузки откликов:", e);
 
     var tbody = document.getElementById("careerBody");
@@ -1030,21 +1093,25 @@ async function loadUsers() {
     const res = await fetch("/api/users");
     if (res.status !== 200) return;
     const users = await res.json();
+
     document.getElementById("usersBody").innerHTML = users
       .map((u) => {
-        const telegramBadge = u.telegram_id
-          ? `<span style="color:#4caf50;font-size:12px">✓</span> <code style="font-size:11px;color:#888">${esc(u.telegram_id)}</code>`
-          : '<span style="color:#aaa;font-size:12px">—</span>';
-        const notifyIcon = u.notify_enabled
-          ? '<span style="color:#4caf50;font-size:14px">🔔</span>'
-          : '<span style="color:#ccc;font-size:14px">🔕</span>';
-        return `<tr><td class="col-center">#${u.id}</td><td><strong>${esc(u.display_name)}</strong></td>
+        return `
+          <tr>
+            <td class="col-center">#${u.id}</td>
+            <td><strong>${esc(u.display_name)}</strong></td>
             <td>${esc(u.username)}</td>
             <td>${u.position ? esc(u.position) : '<span style="color:#aaa">—</span>'}</td>
-            <td class="col-center"><span class="role-icon role-icon-${u.role === "admin" ? "admin" : "employee"}"></span>${u.role === "admin" ? "Админ" : "Сотрудник"}</td>
-            <td class="col-center" style="white-space:nowrap">${notifyIcon} ${telegramBadge}</td>
-            <td class="col-center"><button class="btn btn-sm btn-secondary" onclick="openUserModal(${u.id})">✎</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">✕</button></td></tr>`;
+            <td class="col-center">
+              <span class="role-icon role-icon-${u.role === "admin" ? "admin" : "employee"}"></span>
+              ${u.role === "admin" ? "Админ" : "Сотрудник"}
+            </td>
+            <td class="col-center" style="white-space:nowrap">
+              <button class="btn btn-sm btn-secondary" onclick="openUserModal(${u.id})" title="Редактировать">✎</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})" title="Удалить">✕</button>
+            </td>
+          </tr>
+        `;
       })
       .join("");
   } catch (e) {
@@ -1731,3 +1798,210 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 });
+
+// ─── ЦЕНТР УПРАВЛЕНИЯ ДАННЫМИ (Только для админов) ───
+
+// Переключение подвкладок (Клиенты / Логи)
+function switchDataTab(tab, btn) {
+  document.getElementById("data-clients-block").style.display =
+    tab === "clients" ? "block" : "none";
+  document.getElementById("data-logs-block").style.display =
+    tab === "logs" ? "block" : "none";
+  document.getElementById("data-subs-block").style.display =
+    tab === "subs" ? "block" : "none"; // НОВОЕ
+
+  document.getElementById("dataTabBtnClients").className =
+    "btn btn-sm " + (tab === "clients" ? "btn-success" : "btn-secondary");
+  document.getElementById("dataTabBtnLogs").className =
+    "btn btn-sm " + (tab === "logs" ? "btn-success" : "btn-secondary");
+  document.getElementById("dataTabBtnSubs").className =
+    "btn btn-sm " + (tab === "subs" ? "btn-success" : "btn-secondary"); // НОВОЕ
+}
+
+// Главная функция загрузки при открытии вкладки
+async function loadDataManagement() {
+  await loadClientsData();
+  await loadLogsData();
+  await loadSubscriptionsData(); // НОВОЕ
+}
+
+// 1. Загрузка клиентов
+async function loadClientsData() {
+  const tbody = document.getElementById("dataClientsBody");
+  if (!tbody) return;
+  tbody.innerHTML =
+    '<tr><td colspan="5" class="empty-state">Загрузка...</td></tr>';
+
+  try {
+    const res = await fetch("/api/data/clients");
+    if (!res.ok) throw new Error("Ошибка загрузки");
+    const clients = await res.json();
+
+    if (!clients.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" class="empty-state">Клиенты не найдены</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = clients
+      .map(
+        (c) => `
+            <tr>
+                <td class="col-center">#${c.id}</td>
+                <td><strong>${esc(c.display_name || "—")}</strong></td>
+                <td><a href="tel:${c.phone}">${esc(c.phone)}</a></td>
+                <td class="col-nowrap">${c.created_at ? c.created_at.replace("T", " ").substring(0, 16) : "—"}</td>
+                <td class="col-center">
+                    <button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})" title="Удалить">✕</button>
+                </td>
+            </tr>
+        `,
+      )
+      .join("");
+  } catch (e) {
+    console.error(e);
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="empty-state" style="color:red">Ошибка загрузки</td></tr>';
+  }
+}
+
+// Удаление клиента
+async function deleteClient(id) {
+  if (!confirm(`Удалить клиента #${id}? Это действие необратимо.`)) return;
+  try {
+    const res = await fetch(`/api/data/clients/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Ошибка удаления");
+    showToast("Клиент удален", "success");
+    loadClientsData();
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}
+
+// 2. Загрузка логов уведомлений
+async function loadLogsData() {
+  const tbody = document.getElementById("dataLogsBody");
+  if (!tbody) return;
+  tbody.innerHTML =
+    '<tr><td colspan="5" class="empty-state">Загрузка...</td></tr>';
+
+  try {
+    const res = await fetch("/api/data/logs/notifications");
+    if (!res.ok) throw new Error("Ошибка загрузки");
+    const logs = await res.json();
+
+    if (!logs.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" class="empty-state">Логи пусты (уведомления еще не отправлялись)</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = logs
+      .map((l) => {
+        const channelBadge =
+          l.channel === "tg"
+            ? '<span class="badge badge-active">Telegram</span>'
+            : '<span class="badge badge-pending">VK</span>';
+
+        return `
+                <tr>
+                    <td class="col-center">#${l.booking_id}</td>
+                    <td>${esc(l.client_name || "—")}</td>
+                    <td>${esc(l.service || "—")}</td>
+                    <td class="col-center">${channelBadge}</td>
+                    <td class="col-nowrap">${l.created_at ? l.created_at.replace("T", " ").substring(0, 19) : "—"}</td>
+                </tr>
+            `;
+      })
+      .join("");
+  } catch (e) {
+    console.error(e);
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="empty-state" style="color:red">Ошибка загрузки</td></tr>';
+  }
+}
+
+// ─── ПОДПИСКИ НА УВЕДОМЛЕНИЯ ───
+async function loadSubscriptionsData() {
+  const tbody = document.getElementById("dataSubsBody");
+  if (!tbody) return;
+  tbody.innerHTML =
+    '<tr><td colspan="5" class="empty-state">Загрузка...</td></tr>';
+
+  try {
+    const res = await fetch("/api/data/subscriptions");
+    if (!res.ok) throw new Error("Ошибка загрузки");
+    const subs = await res.json();
+
+    if (!subs.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" class="empty-state">Нет активных подписок</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = subs
+      .map((s) => {
+        const tgBadge = s.notify_enabled
+          ? `<span style="color:#27ae60">✓</span> <code style="font-size:11px">${esc(s.telegram_id)}</code>`
+          : '<span style="color:#aaa">—</span>';
+        const vkBadge = s.vk_notify_enabled
+          ? `<span style="color:#27ae60">✓</span> <code style="font-size:11px">${esc(s.vk_id)}</code>`
+          : '<span style="color:#aaa">—</span>';
+
+        const tgBtn = s.notify_enabled
+          ? `<button class="btn btn-sm btn-danger" onclick="unbindNotify(${s.id}, 'tg')" title="Отвязать Telegram" style="margin-right:4px">✕ TG</button>`
+          : "";
+        const vkBtn = s.vk_notify_enabled
+          ? `<button class="btn btn-sm btn-danger" onclick="unbindNotify(${s.id}, 'vk')" title="Отвязать VK">✕ VK</button>`
+          : "";
+
+        return `<tr>
+                <td><strong>${esc(s.display_name || "—")}</strong></td>
+                <td>${esc(s.username)}</td>
+                <td>${tgBadge}</td>
+                <td>${vkBadge}</td>
+                <td class="col-center" style="white-space:nowrap">${tgBtn} ${vkBtn}</td>
+            </tr>`;
+      })
+      .join("");
+  } catch (e) {
+    console.error(e);
+    tbody.innerHTML =
+      '<tr><td colspan="5" class="empty-state" style="color:red">Ошибка загрузки</td></tr>';
+  }
+}
+
+async function unbindNotify(userId, channel) {
+  const name = channel === "tg" ? "Telegram" : "VK";
+  if (
+    !confirm(
+      `Отвязать ${name} ID у этого сотрудника? Уведомления перестанут приходить.`,
+    )
+  )
+    return;
+  try {
+    const res = await fetch(`/api/data/subscriptions/${userId}/${channel}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Ошибка удаления");
+    showToast(`${name} ID успешно отвязан`, "success");
+    loadSubscriptionsData();
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}
+
+// ─── УДАЛЕНИЕ ОТКЛИКА ───
+async function deleteCareerApp(id) {
+  if (!confirm(`Удалить отклик #${id}? Это действие необратимо.`)) return;
+  try {
+    const res = await fetch(`/api/career/applications/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Ошибка удаления");
+    showToast("Отклик удален", "success");
+    loadCareer();
+  } catch (e) {
+    showToast(e.message, "error");
+  }
+}

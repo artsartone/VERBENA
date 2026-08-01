@@ -1,6 +1,8 @@
 import sys
 import os
 import re
+import csv
+import io
 
 # ─── Настройка путей (ОБЯЗАТЕЛЬНО ДО ОСТАЛЬНЫХ ИМПОРТОВ) ───
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -164,7 +166,9 @@ def init_db():
         display_name TEXT NOT NULL DEFAULT '',
         position TEXT NOT NULL DEFAULT '',
         telegram_id TEXT NOT NULL DEFAULT '',
+        vk_id TEXT NOT NULL DEFAULT '',
         notify_enabled INTEGER NOT NULL DEFAULT 0,
+        vk_notify_enabled INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now', '+3 hours'))
     );
     CREATE TABLE IF NOT EXISTS clients (
@@ -220,6 +224,13 @@ def init_db():
          telegram_id TEXT DEFAULT '',
          created_at TEXT NOT NULL DEFAULT (datetime('now', '+3 hours'))
      );
+     CREATE TABLE IF NOT EXISTS notification_log (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         booking_id INTEGER NOT NULL,
+         channel TEXT NOT NULL,
+         created_at TEXT NOT NULL DEFAULT (datetime('now', '+3 hours')),
+         UNIQUE(booking_id, channel)
+     );
     """)
     conn.commit()
 
@@ -232,6 +243,8 @@ def init_db():
         "ALTER TABLE services_history ADD COLUMN cancelled_at TEXT DEFAULT NULL",
         "ALTER TABLE services_history ADD COLUMN assigned_employee_name TEXT DEFAULT ''",
         "ALTER TABLE users ADD COLUMN telegram_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN vk_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN vk_notify_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN notify_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN yclients_staff_id TEXT DEFAULT NULL",
         # ✅ ВАЖНО: Добавляем ОБЕ колонки для интеграции с YClients
@@ -352,7 +365,9 @@ def auth_login():
         "display_name": user["display_name"],
         "position": user["position"],
         "telegram_id": user["telegram_id"],
+        "vk_id": user["vk_id"],
         "notify_enabled": user["notify_enabled"],
+        "vk_notify_enabled": user["vk_notify_enabled"],
     })
 
 
@@ -368,7 +383,7 @@ def auth_me():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, username, role, display_name, position, telegram_id, notify_enabled FROM users WHERE id = ?",
+        "SELECT id, username, role, display_name, position, telegram_id, vk_id, notify_enabled, vk_notify_enabled FROM users WHERE id = ?",
         (session["user_id"], ))
     user = cur.fetchone()
     conn.close()
@@ -381,7 +396,9 @@ def auth_me():
         "display_name": user["display_name"],
         "position": user["position"],
         "telegram_id": user["telegram_id"],
+        "vk_id": user["vk_id"],
         "notify_enabled": user["notify_enabled"],
+        "vk_notify_enabled": user["vk_notify_enabled"],
     })
 
 
@@ -611,6 +628,36 @@ def create_booking():
             if not users:
                 _logger.info("Нет пользователей с notify_enabled=1")
                 return
+            # Дедупликация: не отправляем дважды для одной записи.
+            # SQLite блокирует БД при параллельной записи, поэтому делаем retry;
+            # при любой ошибке НЕ отправляем (чтобы избежать дубля).
+            for attempt in range(10):
+                try:
+                    dup_conn = sqlite3.connect(DB_PATH, timeout=10)
+                    dup_cur = dup_conn.cursor()
+                    dup_cur.execute(
+                        "INSERT OR IGNORE INTO notification_log (booking_id, channel) VALUES (?, 'tg')",
+                        (booking_id, ))
+                    dup_inserted = dup_cur.rowcount
+                    dup_conn.commit()
+                    dup_conn.close()
+                    break
+                except Exception as dup_e:
+                    try:
+                        dup_conn.close()
+                    except Exception:
+                        pass
+                    _logger.warning(
+                        f"TG дедуп retry {attempt + 1} для записи {booking_id}: {dup_e}"
+                    )
+                    dup_inserted = 0
+                    import time as _time
+                    _time.sleep(0.3)
+            if dup_inserted == 0:
+                _logger.info(
+                    f"TG-уведомление уже отправлено для записи {booking_id}, пропускаем"
+                )
+                return
             _logger.info(
                 f"Отправка уведомлений {len(users)} пользователям (proxy={'да' if proxy_conf else 'нет'})"
             )
@@ -668,7 +715,114 @@ def create_booking():
             _logger.error(f"Исключение в _send_telegram_notify: {e}",
                           exc_info=True)
 
+    def _send_vk_notify():
+        """VK-уведомления о новой записи (для источников: сайт, ТГ, VK)."""
+        import os as _os
+        import logging as _logging
+        _logger = _logging.getLogger("vk_notify")
+        _logger.setLevel(_logging.INFO)
+        if not _logger.handlers:
+            _h = _logging.StreamHandler()
+            _h.setFormatter(
+                _logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            _logger.addHandler(_h)
+        vk_token = _os.environ.get("BOT_TOKEN_VK", "")
+        if not vk_token:
+            _logger.warning(
+                "BOT_TOKEN_VK не задан — VK-уведомления не отправляются")
+            return
+        try:
+            import requests as _requests
+            # Получаем список уведомляемых через сам API
+            users_raw = subprocess.run([
+                "curl", "-s", "--max-time", "5",
+                "http://127.0.0.1:5000/api/vk/notify-users"
+            ],
+                                       capture_output=True,
+                                       text=True,
+                                       timeout=10)
+            if users_raw.returncode != 0:
+                _logger.error(
+                    f"Ошибка вызова vk/notify-users: stderr={users_raw.stderr}"
+                )
+                return
+            users = json.loads(users_raw.stdout or "[]")
+            if not users:
+                _logger.info("Нет пользователей с vk_notify_enabled=1")
+                return
+            # Дедупликация: не отправляем дважды для одной записи.
+            # SQLite блокирует БД при параллельной записи, поэтому делаем retry;
+            # при любой ошибке НЕ отправляем (чтобы избежать дубля).
+            for attempt in range(10):
+                try:
+                    dup_conn = sqlite3.connect(DB_PATH, timeout=10)
+                    dup_cur = dup_conn.cursor()
+                    dup_cur.execute(
+                        "INSERT OR IGNORE INTO notification_log (booking_id, channel) VALUES (?, 'vk')",
+                        (booking_id, ))
+                    dup_inserted = dup_cur.rowcount
+                    dup_conn.commit()
+                    dup_conn.close()
+                    break
+                except Exception as dup_e:
+                    try:
+                        dup_conn.close()
+                    except Exception:
+                        pass
+                    _logger.warning(
+                        f"VK дедуп retry {attempt + 1} для записи {booking_id}: {dup_e}"
+                    )
+                    dup_inserted = 0
+                    import time as _time
+                    _time.sleep(0.3)
+            if dup_inserted == 0:
+                _logger.info(
+                    f"VK-уведомление уже отправлено для записи {booking_id}, пропускаем"
+                )
+                return
+            _logger.info(f"Отправка VK-уведомлений {len(users)} пользователям")
+            text = (
+                "📢 Новая запись в студию VERBENA!\n\n"
+                f"👤 Клиент: {data['client_name']}\n"
+                f"💇‍♀️ Услуга: {data['service']}\n"
+                f"📅 Дата: {data['booking_date']}\n"
+                f"⏰ Время: {data['booking_time']}\n"
+                f"📞 Телефон: {phone}\n\n"
+                "🔗 Управлять записями Verbena: https://yclients.com/dashboard_records/2101920"
+            )
+            for u in users:
+                vk_id = u.get("vk_id", "").strip()
+                if not vk_id or not vk_id.lstrip("-").isdigit():
+                    continue
+                try:
+                    r = _requests.post(
+                        "https://api.vk.com/method/messages.send",
+                        data={
+                            "access_token": vk_token,
+                            "v": "5.199",
+                            "user_id": int(vk_id),
+                            "message": text,
+                            "random_id": 0,
+                        },
+                        timeout=15,
+                    )
+                    resp_data = r.json()
+                    if "error" in resp_data:
+                        _logger.error(
+                            f"VK API ошибка для пользователя {vk_id}: {resp_data['error']}"
+                        )
+                    else:
+                        _logger.info(
+                            f"VK-уведомление отправлено пользователю {vk_id}")
+                except Exception as e:
+                    _logger.error(
+                        f"Ошибка отправки VK-уведомления {vk_id}: {e}")
+        except Exception as e:
+            _logger.error(f"Исключение в _send_vk_notify: {e}", exc_info=True)
+
     threading.Thread(target=_send_telegram_notify, daemon=True).start()
+    threading.Thread(target=_send_vk_notify, daemon=True).start()
     return jsonify({
         "id": booking_id,
         "client_id": client_id,
@@ -1120,16 +1274,35 @@ def delete_user(user_id):
 @login_required
 def auth_update_notify():
     data = request.get_json()
+
+    # ✅ Безопасный парсер булевых значений
+    def parse_bool(val):
+        if isinstance(val, bool): return 1 if val else 0
+        if isinstance(val, (int, float)): return 1 if val else 0
+        if isinstance(val, str):
+            return 1 if val.strip().lower() in ('1', 'true', 'yes',
+                                                'on') else 0
+        return 0
+
     telegram_id = (data.get("telegram_id") or "").strip()
-    notify_enabled = 1 if data.get("notify_enabled") else 0
+    vk_id = (data.get("vk_id") or "").strip()
+
+    # ✅ Используем парсер вместо прямого if/else
+    notify_enabled = parse_bool(data.get("notify_enabled"))
+    vk_notify_enabled = parse_bool(data.get("vk_notify_enabled"))
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE users SET telegram_id = ?, notify_enabled = ? WHERE id = ?",
-        (telegram_id, notify_enabled, session["user_id"]))
+        "UPDATE users SET telegram_id = ?, vk_id = ?, notify_enabled = ?, vk_notify_enabled = ? WHERE id = ?",
+        (telegram_id, vk_id, notify_enabled, vk_notify_enabled,
+         session["user_id"]))
     conn.commit()
     conn.close()
+
     session["telegram_id"] = telegram_id
+    session["vk_id"] = vk_id
+
     return jsonify({"message": "Настройки уведомлений обновлены"}), 200
 
 
@@ -1139,6 +1312,19 @@ def telegram_notify_users():
     cur = conn.cursor()
     cur.execute(
         "SELECT id, display_name, telegram_id FROM users WHERE notify_enabled = 1 AND telegram_id != '' AND telegram_id IS NOT NULL"
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/vk/notify-users", methods=["GET"])
+def vk_notify_users():
+    """Список пользователей админки, подписавшихся на VK-уведомления о записях."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, display_name, vk_id FROM users WHERE vk_notify_enabled = 1 AND vk_id != '' AND vk_id IS NOT NULL"
     )
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
@@ -1706,6 +1892,163 @@ def serve_site_static(filename):
         if os.path.exists(file_path) and not os.path.isdir(file_path):
             return send_from_directory(directory, filename)
     return jsonify({"error": "Файл не найден"}), 404
+
+
+# ──────────── ЦЕНТР УПРАВЛЕНИЯ ДАННЫМИ ────────────
+
+
+@app.route("/api/data/clients", methods=["GET"])
+@admin_required
+def get_all_clients():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT c.id, c.display_name, c.phone, c.created_at,
+               GROUP_CONCAT(tc.telegram_id, ', ') as tg_ids
+        FROM clients c
+        LEFT JOIN telegram_clients tc ON c.phone = tc.phone
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/data/clients/<int:client_id>", methods=["DELETE"])
+@admin_required
+def delete_client(client_id):
+    """Удалить клиента."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM clients WHERE id = ?", (client_id, ))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Клиент удален"})
+
+
+@app.route("/api/data/logs/notifications", methods=["GET"])
+@admin_required
+def get_notification_logs():
+    """Посмотреть логи отправленных уведомлений (дедупликация)."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT nl.id, nl.booking_id, nl.channel, nl.created_at,
+               b.client_name, b.service
+        FROM notification_log nl
+        LEFT JOIN bookings b ON nl.booking_id = b.id
+        ORDER BY nl.created_at DESC LIMIT 100
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/data/export/<table_type>", methods=["GET"])
+@admin_required
+def export_data(table_type):
+    """Экспорт данных в CSV (для открытия в Excel)."""
+    import csv
+    import io
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    if table_type == "clients":
+        cur.execute("SELECT id, display_name, phone, created_at FROM clients")
+        headers = ["ID", "Имя", "Телефон", "Дата создания"]
+    elif table_type == "bookings":
+        cur.execute(
+            "SELECT id, client_name, client_phone, service, booking_date, booking_time, status, assigned_employee_name FROM bookings"
+        )
+        headers = [
+            "ID", "Клиент", "Телефон", "Услуга", "Дата", "Время", "Статус",
+            "Мастер"
+        ]
+    elif table_type == "career":
+        cur.execute(
+            "SELECT id, client_name, client_phone, experience, source, created_at FROM career_applications"
+        )
+        headers = ["ID", "Имя", "Телефон", "Опыт", "Источник", "Дата"]
+    else:
+        conn.close()
+        return jsonify({"error": "Неизвестный тип"}), 400
+
+    rows = cur.fetchall()
+    conn.close()
+
+    # Генерируем CSV
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(headers)
+    cw.writerows(rows)
+
+    output = si.getvalue()
+    # Добавляем BOM для корректного отображения кириллицы в Excel
+    output = "\ufeff" + output
+
+    return Response(output,
+                    mimetype="text/csv",
+                    headers={
+                        "Content-Disposition":
+                        f"attachment;filename={table_type}_export.csv"
+                    })
+
+
+# ──────────── ПОДПИСКИ И УДАЛЕНИЕ ОТКЛИКОВ ────────────
+
+
+@app.route("/api/data/subscriptions", methods=["GET"])
+@admin_required
+def get_subscriptions():
+    """Получить список пользователей с активными подписками на уведомления."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, display_name, username, telegram_id, notify_enabled, vk_id, vk_notify_enabled
+        FROM users
+        WHERE (telegram_id != '' AND notify_enabled = 1) OR (vk_id != '' AND vk_notify_enabled = 1)
+        ORDER BY display_name
+    """)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route("/api/data/subscriptions/<int:user_id>/<channel>",
+           methods=["DELETE"])
+@admin_required
+def delete_subscription(user_id, channel):
+    """Отвязать ID и выключить уведомления для конкретного канала (tg или vk)."""
+    conn = get_db()
+    cur = conn.cursor()
+    if channel == 'tg':
+        cur.execute(
+            "UPDATE users SET telegram_id = '', notify_enabled = 0 WHERE id = ?",
+            (user_id, ))
+    elif channel == 'vk':
+        cur.execute(
+            "UPDATE users SET vk_id = '', vk_notify_enabled = 0 WHERE id = ?",
+            (user_id, ))
+    else:
+        conn.close()
+        return jsonify({"error": "Неизвестный канал"}), 400
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Подписка удалена"})
+
+
+@app.route("/api/career/applications/<int:app_id>", methods=["DELETE"])
+@admin_required
+def delete_career_application(app_id):
+    """Удалить отклик на вакансию."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM career_applications WHERE id = ?", (app_id, ))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Отклик удален"})
 
 
 if __name__ == "__main__":

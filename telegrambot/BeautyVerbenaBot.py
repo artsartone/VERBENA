@@ -838,8 +838,6 @@ async def service_selected(update: Update,
             keyboard.append([
                 InlineKeyboardButton(label, callback_data=f"staff_{s['id']}")
             ])
-        keyboard.append(
-            [InlineKeyboardButton("🤷 Любой мастер", callback_data="staff_0")])
         keyboard.append([
             InlineKeyboardButton("◀️ Назад",
                                  callback_data="back_to_categories")
@@ -848,7 +846,7 @@ async def service_selected(update: Update,
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"💇‍♀️ <b>Услуга:</b> {service_name}\n\n"
-            "👩‍🎨 Выберите мастера (или «Любой мастер»):",
+            "👩‍🎨 Выберите мастера:",
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
