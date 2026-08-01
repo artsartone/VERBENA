@@ -1891,7 +1891,9 @@ textarea.form-input {
     max-width: 85vw;
     height: 100vh;
     height: 100dvh; /* iOS fix */
-    max-height: 100dvh; /* Жёсткий лимит высоты с учётом адресной строки */
+    height: 100svh; /* ✅ Фикс бага iOS Safari 26: fixed + 100dvh может считаться от "большого" viewport и обрезаться панелями инструментов. svh — всегда гарантированно видимая область. */
+    max-height: 100dvh;
+    max-height: 100svh; /* Жёсткий лимит высоты с учётом видимых панелей браузера */
     z-index: 10001;
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
