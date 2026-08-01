@@ -105,6 +105,22 @@ function initBrowserNotifications() {
   }
 }
 
+function setVhVariable() {
+  let vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty("--vh", `${vh}px`);
+}
+
+setVhVariable();
+window.addEventListener("resize", setVhVariable);
+window.addEventListener("orientationchange", setVhVariable);
+
+document.addEventListener("click", (e) => {
+  const toggle = document.getElementById("sidebarToggle");
+  if (e.target === toggle || toggle?.contains(e.target)) {
+    setTimeout(setVhVariable, 100);
+  }
+});
+
 function updateBrowserNotifyStatus(text, isSuccess) {
   const el = document.getElementById("browserNotifyStatus");
   if (!el) return;
