@@ -345,16 +345,14 @@ document.addEventListener("click", (e) => {
     sidebar.classList.toggle("open");
     overlay.classList.toggle("open");
     toggle.classList.toggle("open");
-    document.body.style.overflow = sidebar.classList.contains("open")
-      ? "hidden"
-      : "";
+    lockBodyScroll(sidebar.classList.contains("open"));
     return;
   }
   if (e.target === overlay) {
     sidebar.classList.remove("open");
     overlay.classList.remove("open");
     toggle.classList.remove("open");
-    document.body.style.overflow = "";
+    lockBodyScroll(false);
   }
 });
 
