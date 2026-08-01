@@ -385,7 +385,7 @@ document.querySelectorAll(".sidebar-link[data-tab]").forEach((link) => {
       document.querySelector(".sidebar")?.classList.remove("open");
       document.getElementById("sidebarOverlay")?.classList.remove("open");
       document.getElementById("sidebarToggle")?.classList.remove("open");
-      document.body.style.overflow = "";
+      lockBodyScroll(false); // ✅ Используем новый фикс
     }
   });
 });
@@ -675,11 +675,13 @@ async function loadCareer() {
     const apps = await res.json();
     const tbody = document.getElementById("careerBody");
     if (!tbody) return;
+
     if (!apps || apps.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="8" class="empty-state">Нет откликов</td></tr>';
+        '<tr><td colspan="9" class="empty-state">Нет откликов</td></tr>';
       return;
     }
+
     tbody.innerHTML = apps
       .map(function (a) {
         var date = a.created_at
@@ -691,50 +693,68 @@ async function loadCareer() {
             '" target="_blank" style="color:#b58c5c">ссылка</a>'
           : "—";
         var cover = a.cover_letter || "—";
+
+        // ✅ Добавили поддержку VK
         var source =
           a.source === "tg" ? "Telegram" : a.source === "vk" ? "VK" : "Сайт";
+
+        // ✅ Кнопка удаления
         var deleteBtn = `<button class="btn btn-sm btn-danger" onclick="deleteCareerApp(${a.id})" title="Удалить отклик">✕</button>`;
 
         return (
-          " <tr > " +
-          " <td > " +
+          "<tr>" +
+          "<td data-label='ID'>" +
           a.id +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Дата'>" +
           date +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Имя'>" +
           escapeHtml(a.client_name) +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Телефон'>" +
           escapeHtml(a.client_phone) +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Опыт'>" +
           escapeHtml(a.experience) +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Резюме'>" +
           resumeLink +
-          " </td > " +
-          ' <td style="max-width:200px;white-space:normal" > ' +
+          "</td>" +
+          "<td data-label='Письмо' style='max-width:200px;white-space:normal'>" +
           escapeHtml(cover) +
-          " </td > " +
-          " <td > " +
+          "</td>" +
+          "<td data-label='Источник'>" +
           source +
-          " </td > " +
-          " <td data-label='Действия' class='col-center col-actions'> " +
+          "</td>" +
+          "<td data-label='Действия' class='col-center col-actions'>" +
           deleteBtn +
-          " </td > " +
-          " </tr > "
+          "</td>" +
+          "</tr>"
         );
       })
       .join("");
   } catch (e) {
     console.error("Ошибка загрузки откликов:", e);
-
     var tbody = document.getElementById("careerBody");
     if (tbody)
       tbody.innerHTML =
-        '<tr><td colspan="8" class="empty-state">Ошибка загрузки</td></tr>';
+        '<tr><td colspan="9" class="empty-state">Ошибка загрузки</td></tr>';
+  }
+}
+
+// ✅ Функция удаления отклика (добавляем сразу после loadCareer)
+async function deleteCareerApp(id) {
+  if (!confirm(`Удалить отклик #${id}? Это действие необратимо.`)) return;
+  try {
+    const res = await fetch(`/api/career/applications/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Ошибка удаления");
+    showToast("Отклик удален", "success");
+    loadCareer();
+  } catch (e) {
+    showToast(e.message, "error");
   }
 }
 
@@ -837,22 +857,20 @@ function applyFilterSelection() {
   });
 }
 
-// Закрываем dropdown при клике вне него и вне кнопки-триггера
-document.addEventListener("click", (e) => {
-  const dd = document.getElementById("filterDropdown");
-  const trigger = document.getElementById("historyFilterToggle");
-  if (!dd || dd.style.display === "none") return;
-  if (
-    !dd.contains(e.target) &&
-    e.target !== trigger &&
-    !trigger?.contains(e.target)
-  ) {
-    dd.style.display = "none";
+// ─── Фикс скролла для iOS ───
+let _scrollY = 0;
+function lockBodyScroll(lock) {
+  const body = document.body;
+  if (lock) {
+    _scrollY = window.scrollY;
+    body.classList.add("menu-open");
+    body.style.top = `-${_scrollY}px`;
+  } else {
+    body.classList.remove("menu-open");
+    body.style.top = "";
+    window.scrollTo(0, _scrollY);
   }
-});
-
-// ─── Универсальный календарь для выбора дат ───
-// Используется в истории услуг (диапазон) и занятости (одиночная дата)
+}
 
 let historyRange = { start: null, end: null };
 let scheduleDateRange = { start: null, end: null };
@@ -1093,20 +1111,19 @@ async function loadUsers() {
     const res = await fetch("/api/users");
     if (res.status !== 200) return;
     const users = await res.json();
-
     document.getElementById("usersBody").innerHTML = users
       .map((u) => {
         return `
           <tr>
-            <td class="col-center">#${u.id}</td>
-            <td><strong>${esc(u.display_name)}</strong></td>
-            <td>${esc(u.username)}</td>
-            <td>${u.position ? esc(u.position) : '<span style="color:#aaa">—</span>'}</td>
-            <td class="col-center">
+            <td data-label="ID" class="col-center">#${u.id}</td>
+            <td data-label="ФИО"><strong>${esc(u.display_name)}</strong></td>
+            <td data-label="Логин">${esc(u.username)}</td>
+            <td data-label="Должность">${u.position ? esc(u.position) : '<span style="color:#aaa">—</span>'}</td>
+            <td data-label="Роль" class="col-center">
               <span class="role-icon role-icon-${u.role === "admin" ? "admin" : "employee"}"></span>
               ${u.role === "admin" ? "Админ" : "Сотрудник"}
             </td>
-            <td class="col-center" style="white-space:nowrap">
+            <td data-label="Действия" class="col-center" style="white-space:nowrap">
               <button class="btn btn-sm btn-secondary" onclick="openUserModal(${u.id})" title="Редактировать">✎</button>
               <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})" title="Удалить">✕</button>
             </td>
@@ -1846,16 +1863,16 @@ async function loadClientsData() {
     tbody.innerHTML = clients
       .map(
         (c) => `
-            <tr>
-                <td class="col-center">#${c.id}</td>
-                <td><strong>${esc(c.display_name || "—")}</strong></td>
-                <td><a href="tel:${c.phone}">${esc(c.phone)}</a></td>
-                <td class="col-nowrap">${c.created_at ? c.created_at.replace("T", " ").substring(0, 16) : "—"}</td>
-                <td class="col-center">
-                    <button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})" title="Удалить">✕</button>
-                </td>
-            </tr>
-        `,
+    <tr>
+        <td data-label="ID" class="col-center">#${c.id}</td>
+        <td data-label="Имя"><strong>${esc(c.display_name || "—")}</strong></td>
+        <td data-label="Телефон"><a href="tel:${c.phone}">${esc(c.phone)}</a></td>
+        <td data-label="Дата" class="col-nowrap">${c.created_at ? c.created_at.replace("T", " ").substring(0, 16) : "—"}</td>
+        <td data-label="Действия" class="col-center">
+            <button class="btn btn-sm btn-danger" onclick="deleteClient(${c.id})" title="Удалить">✕</button>
+        </td>
+    </tr>
+`,
       )
       .join("");
   } catch (e) {
@@ -1902,16 +1919,15 @@ async function loadLogsData() {
           l.channel === "tg"
             ? '<span class="badge badge-active">Telegram</span>'
             : '<span class="badge badge-pending">VK</span>';
-
         return `
-                <tr>
-                    <td class="col-center">#${l.booking_id}</td>
-                    <td>${esc(l.client_name || "—")}</td>
-                    <td>${esc(l.service || "—")}</td>
-                    <td class="col-center">${channelBadge}</td>
-                    <td class="col-nowrap">${l.created_at ? l.created_at.replace("T", " ").substring(0, 19) : "—"}</td>
-                </tr>
-            `;
+        <tr>
+            <td data-label="ID Записи" class="col-center">#${l.booking_id}</td>
+            <td data-label="Клиент">${esc(l.client_name || "—")}</td>
+            <td data-label="Услуга">${esc(l.service || "—")}</td>
+            <td data-label="Канал" class="col-center">${channelBadge}</td>
+            <td data-label="Время" class="col-nowrap">${l.created_at ? l.created_at.replace("T", " ").substring(0, 19) : "—"}</td>
+        </tr>
+    `;
       })
       .join("");
   } catch (e) {
@@ -1955,13 +1971,15 @@ async function loadSubscriptionsData() {
           ? `<button class="btn btn-sm btn-danger" onclick="unbindNotify(${s.id}, 'vk')" title="Отвязать VK">✕ VK</button>`
           : "";
 
-        return `<tr>
-                <td><strong>${esc(s.display_name || "—")}</strong></td>
-                <td>${esc(s.username)}</td>
-                <td>${tgBadge}</td>
-                <td>${vkBadge}</td>
-                <td class="col-center" style="white-space:nowrap">${tgBtn} ${vkBtn}</td>
-            </tr>`;
+        return `
+        <tr>
+            <td data-label="Сотрудник"><strong>${esc(s.display_name || "—")}</strong></td>
+            <td data-label="Логин">${esc(s.username)}</td>
+            <td data-label="Telegram ID">${tgBadge}</td>
+            <td data-label="VK ID">${vkBadge}</td>
+            <td data-label="Действия" class="col-center" style="white-space:nowrap">${tgBtn} ${vkBtn}</td>
+        </tr>
+    `;
       })
       .join("");
   } catch (e) {

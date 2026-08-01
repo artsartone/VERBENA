@@ -23,7 +23,92 @@
   --shadow: 0 2px 12px rgba(46, 61, 43, 0.08);
 }
 
-html,
+/* ═══════════════════════════════════════════════════
+   iOS SAFARI / MOBILE BROWSER FIXES
+   ═══════════════════════════════════════════════════ */
+
+/* 1. Убираем "резиновый" скролл (rubber-band) на всей странице */
+html {
+  overscroll-behavior: none;
+  /* Фикс 100vh на iOS Safari (адресная строка меняет высоту) */
+  height: -webkit-fill-available;
+}
+
+body {
+  overscroll-behavior: none;
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height — iOS 15.4+ */
+  min-height: -webkit-fill-available; /* iOS < 15.4 */
+}
+
+/* 2. Safe Area Insets (notch, Dynamic Island, нижняя полоса iPhone) */
+@supports (padding: env(safe-area-inset-top)) {
+  .sidebar {
+    padding-top: calc(24px + env(safe-area-inset-top));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .main {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  /* На мобильных сайдбар тоже учитывает safe areas */
+  @media (max-width: 768px) {
+    .sidebar {
+      padding-top: calc(16px + env(safe-area-inset-top));
+      padding-left: env(safe-area-inset-left);
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+
+    .main {
+      padding-top: calc(64px + env(safe-area-inset-top));
+      padding-left: calc(16px + env(safe-area-inset-left));
+      padding-right: calc(16px + env(safe-area-inset-right));
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+
+    /* Гамбургер не залезает под notch */
+    .sidebar-toggle {
+      top: calc(12px + env(safe-area-inset-top));
+      left: calc(12px + env(safe-area-inset-left));
+    }
+  }
+}
+
+/* 3. Запрет проброса скролла через оверлей и сайдбар */
+.sidebar-overlay {
+  overscroll-behavior: none;
+  touch-action: none; /* КРИТИЧНО для iOS! */
+}
+
+.sidebar-overlay.open {
+  /* Не даём фону скроллиться, когда меню открыто */
+  position: fixed;
+  inset: 0;
+}
+
+/* 4. Сайдбар на мобильных: скроллится ВНУТРИ себя */
+@media (max-width: 768px) {
+  .sidebar {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; /* Скролл не "вылетает" за пределы сайдбара */
+  }
+}
+
+/* 5. Фиксация body при открытом меню (iOS не слушает overflow:hidden) */
+body.menu-open {
+  position: fixed !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  touch-action: none !important;
+}
+
+/* 6. Плавный скролл для основного контента */
+.main {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
 body {
   height: 100%;
   font-family:
@@ -1814,16 +1899,37 @@ textarea.form-input {
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 9999;
     width: 280px;
+    max-width: 85vw;
     height: 100vh;
+    height: 100dvh; /* iOS fix */
+    z-index: 10001;
     transform: translateX(-100%);
-    transition: transform 0.3s ease;
-    padding-top: 60px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  .sidebar-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .sidebar-logo {
