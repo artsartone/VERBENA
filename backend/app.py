@@ -29,6 +29,7 @@ from client_identity import get_or_create_client
 from notification_link import create_token, build_deeplink, link_directly, is_linked, redeem_token, PROVIDERS
 from notification_service import notify_client
 import logging
+import subprocess, urllib.parse
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -593,8 +594,6 @@ def create_booking():
 
         threading.Thread(target=_send_to_yclients, daemon=True).start()
 
-    import subprocess, urllib.parse
-
     def _send_telegram_notify():
         import os as _os
         import logging as _logging
@@ -828,6 +827,24 @@ def create_booking():
         "client_id": client_id,
         "message": "Запись создана"
     }), 201
+
+
+@app.post("/api/admin/restart-bot/<bot_name>")
+def restart_bot(bot_name):
+
+    services = {
+        "telegram": "verbena-bot.service",
+        "vk": "beautyverbena-vk.service"
+    }
+
+    if bot_name not in services:
+        return jsonify({"success": False, "error": "Unknown bot"}), 400
+
+    service = services[bot_name]
+
+    subprocess.run(["sudo", "systemctl", "restart", service], check=True)
+
+    return jsonify({"success": True, "service": service})
 
 
 @app.route("/api/bookings/<int:booking_id>", methods=["PUT"])
@@ -1935,7 +1952,7 @@ def get_notification_logs():
     cur = conn.cursor()
     cur.execute("""
         SELECT nl.id, nl.booking_id, nl.channel, nl.created_at,
-               b.client_name, b.service
+        b.client_name, b.service
         FROM notification_log nl
         LEFT JOIN bookings b ON nl.booking_id = b.id
         ORDER BY nl.created_at DESC LIMIT 100
@@ -1943,6 +1960,37 @@ def get_notification_logs():
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
+
+
+# ═══════════════════════════════════════════════════════════════
+# УДАЛЕНИЕ ЛОГА УВЕДОМЛЕНИЯ
+# ══════════════════════════════════════════════════════════════
+@app.route("/api/data/logs/notifications/<int:log_id>", methods=["DELETE"])
+@admin_required
+def delete_notification_log(log_id):
+    """Удалить одну запись из лога уведомлений."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM notification_log WHERE id = ?", (log_id, ))
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    if deleted == 0:
+        return jsonify({"error": "Лог не найден"}), 404
+    return jsonify({"message": "Лог удалён"}), 200
+
+
+@app.route("/api/data/logs/notifications", methods=["DELETE"])
+@admin_required
+def clear_notification_logs():
+    """Очистить все логи уведомлений (опционально — кнопка «Очистить всё»)."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM notification_log")
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({"message": f"Удалено записей: {deleted}"}), 200
 
 
 @app.route("/api/data/export/<table_type>", methods=["GET"])
@@ -1994,6 +2042,36 @@ def export_data(table_type):
                         "Content-Disposition":
                         f"attachment;filename={table_type}_export.csv"
                     })
+
+
+@app.get("/api/admin/bots/status")
+def bots_status():
+
+    services = ["verbena-bot.service", "beautyverbena-vk.service"]
+
+    result = {}
+
+    for service in services:
+
+        try:
+            output = subprocess.check_output(
+                ["systemctl", "is-active", service],
+                stderr=subprocess.STDOUT).decode().strip()
+
+        except FileNotFoundError:
+            # Windows локально
+            output = "local"
+
+        except subprocess.CalledProcessError:
+            # Linux, сервис выключен
+            output = "inactive"
+
+        except Exception as e:
+            output = f"error: {e}"
+
+        result[service] = output
+
+    return jsonify(result)
 
 
 # ──────────── ПОДПИСКИ И УДАЛЕНИЕ ОТКЛИКОВ ────────────

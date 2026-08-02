@@ -1611,7 +1611,7 @@ button:hover {
   box-shadow: 0 14px 32px rgba(75, 82, 50, 0.1);
   overflow: hidden;
   flex-shrink: 0;
-  height: 520px;
+  height: 580px;
   position: relative;
   z-index: 1;
   transition:
@@ -1655,6 +1655,7 @@ button:hover {
 .review-content {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   flex: 1;
   padding: 28px 28px 30px;
   overflow: hidden;
@@ -1675,16 +1676,12 @@ button:hover {
   font-size: 15px;
   line-height: 1.7;
   margin: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 8;
-  -webkit-box-orient: vertical;
 }
 
-.review-card.expanded .review-text {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
+/* Карточки без фото имеют ~340px свободного места вместо ~130px —
+   даём им больше пространства, чтобы не обрезать раньше времени. */
+.review-card--no-photo .review-text-wrapper {
+  max-height: 340px;
 }
 
 .review-card.expanded .review-text-wrapper {
@@ -1696,10 +1693,12 @@ button:hover {
 }
 
 .review-text-wrapper {
-  flex: 1;
-  overflow: hidden;
   position: relative;
+  flex: 1;
   min-height: 0;
+  max-height: 130px;
+  overflow: hidden;
+  transition: max-height 0.35s ease;
 }
 
 /* Градиент внизу текста когда он обрезан — только для карточек с длинным текстом */
@@ -1719,8 +1718,8 @@ button:hover {
   transition: opacity 0.3s ease;
 }
 
-.review-card.expanded .review-text-wrapper::after {
-  opacity: 0;
+.review-card.expanded .review-text-wrapper {
+  max-height: 1000px;
 }
 
 .review-card.expanded .review-toggle-icon {
@@ -1755,13 +1754,24 @@ button:hover {
   flex-shrink: 0;
 }
 
-.review-toggle-btn {
-  display: none;
-  align-self: center;
+/* Ряд под кнопку-переключатель всегда занимает одну и ту же высоту,
+   видима кнопка или нет — поэтому имя автора никогда не сдвигается. */
+.review-toggle-row {
+  display: flex;
+  justify-content: center;
   margin-top: 10px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.review-toggle-btn {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
   width: 34px;
   height: 34px;
   padding: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
@@ -1841,7 +1851,9 @@ button:hover {
 }
 
 .review-card[data-full-text="true"] .review-toggle-btn {
-  display: inline-flex;
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
 }
 
 /* ───────── Точки переключения отзывов ───────── */

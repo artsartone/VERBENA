@@ -423,46 +423,104 @@ function pickRandomReviews(count) {
 }
 
 function buildReviewCardHtml(r, index) {
-  const isLong = r.text.length > 280;
   const hasPhoto = r.photo && r.photo.trim() !== "";
+
   const photoHtml = hasPhoto
-    ? `<div class="review-photo-wrap"><img class="review-photo" src="${r.photo}" alt="Фото отзыва ${r.author}" /></div>`
+    ? `<div class="review-photo-wrap">
+        <img class="review-photo" src="${r.photo}" alt="Фото отзыва ${r.author}" />
+      </div>`
     : "";
-  return `<article class="review-card" data-review-index="${index}"${isLong ? ' data-full-text="true"' : ""}>
+
+  return `<article class="review-card${hasPhoto ? "" : " review-card--no-photo"}" data-review-index="${index}">
       ${photoHtml}
+
       <div class="review-content">
         <div class="review-mark" aria-hidden="true">\u201C</div>
+
         <div class="review-text-wrapper">
           <p class="review-text">${r.text}</p>
         </div>
-        ${isLong ? '<button class="review-toggle-btn" aria-label="Показать полностью" aria-expanded="false"><svg class="review-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : ""}
+
         <p class="review-author">${r.author}</p>
+
+        <div class="review-toggle-row">
+          <button class="review-toggle-btn" aria-label="Показать полностью" aria-expanded="false">
+            <svg class="review-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path 
+                d="M6 9l6 6 6-6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </article>`;
 }
 
 function initReviewToggle(card) {
+
   const toggleBtn = card.querySelector(".review-toggle-btn");
   if (!toggleBtn) return;
+
   toggleBtn.addEventListener("click", function (e) {
+    console.log("CLICK", card.dataset.reviewIndex);
+
     e.stopPropagation();
-    const isExpanded = card.classList.contains("expanded");
-    if (isExpanded) {
-      card.classList.remove("expanded");
-    } else {
-      card.classList.add("expanded");
-    }
-    this.setAttribute("aria-expanded", String(!isExpanded));
-    this.setAttribute("aria-label", isExpanded ? "Показать полностью" : "Скрыть");
+
+    const expanded = card.classList.toggle("expanded");
+
+    this.setAttribute("aria-expanded", expanded ? "true" : "false");
+
+    this.setAttribute("aria-label", expanded ? "Скрыть" : "Показать полностью");
   });
 }
 
 function renderReviews(reviews) {
   const grid = document.getElementById("reviewsGrid");
   if (!grid) return;
+
   currentReviews = reviews;
+
   grid.innerHTML = reviews.map((r, i) => buildReviewCardHtml(r, i)).join("");
+
   grid.querySelectorAll(".review-card").forEach(initReviewToggle);
+
+  scheduleOverflowCheck(checkExpandableReviews);
+}
+
+function updateCardOverflow(card) {
+  const wrapper = card.querySelector(".review-text-wrapper");
+  const btn = card.querySelector(".review-toggle-btn");
+
+  if (!wrapper || !btn) return;
+
+  if (wrapper.scrollHeight > wrapper.clientHeight + 2) {
+    card.setAttribute("data-full-text", "true");
+  } else {
+    card.removeAttribute("data-full-text");
+  }
+}
+
+function checkExpandableReviews() {
+  document.querySelectorAll(".review-card").forEach(updateCardOverflow);
+}
+
+// Замер scrollHeight/clientHeight ненадёжен, пока не догрузились кастомные
+// шрифты (Poppins/Cormorant) — до этого момента ширина символов другая,
+// и перенос строк ещё "чужой". Ждём fonts.ready и даём браузеру ещё один
+// кадр на отрисовку с финальным шрифтом перед замером.
+function scheduleOverflowCheck(fn) {
+  const ready =
+    document.fonts && document.fonts.ready
+      ? document.fonts.ready
+      : Promise.resolve();
+
+  ready.then(() => {
+    requestAnimationFrame(() => requestAnimationFrame(fn));
+  });
 }
 
 function getRandomCardIndex() {
@@ -504,6 +562,7 @@ function rotateOneReview() {
     const newCard = grid.querySelectorAll(".review-card")[cardIndex];
     if (newCard) {
       initReviewToggle(newCard);
+      scheduleOverflowCheck(() => updateCardOverflow(newCard));
 
       newCard.style.transition = "none";
       newCard.style.opacity = "0";
@@ -622,55 +681,61 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 // ─── Наследование пунктов навигации в mobile-nav ───
-document.addEventListener("DOMContentLoaded", function() {
+document.addEventListener("DOMContentLoaded", function () {
   var mobileNav = document.querySelector(".mobile-nav");
   var desktopNav = document.querySelector("nav ul");
   if (!mobileNav || !desktopNav) return;
-  
+
   // Очищаем mobile-nav
   mobileNav.innerHTML = "";
-  
+
   // Иконки для пунктов меню
   var icons = {
-    "#about": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "#services": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "#reviews": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "contacts": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
-    "booking": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    "#about":
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "#services":
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "#reviews":
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    contacts:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+    booking:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
-  
+
   // Клонируем ссылки из десктопной навигации
   var links = desktopNav.querySelectorAll("a[href^='#']");
-  links.forEach(function(link) {
+  links.forEach(function (link) {
     var href = link.getAttribute("href");
     var text = link.textContent.trim();
     var icon = icons[href] || icons["#about"];
-    
+
     var a = document.createElement("a");
     a.href = href;
     a.className = "mobile-nav-link";
     a.innerHTML = icon + "<span>" + text + "</span>";
     mobileNav.appendChild(a);
   });
-  
+
   // Добавляем кнопку "Контакты"
   var contactsBtn = document.createElement("button");
   contactsBtn.className = "mobile-nav-contacts-btn mobile-nav-link";
   contactsBtn.innerHTML = icons["contacts"] + "<span>Контакты</span>";
   mobileNav.appendChild(contactsBtn);
-  
+
   // Добавляем кнопку "Ищем мастера"
   var careerBtn = document.createElement("button");
   careerBtn.className = "mobile-nav-link mobile-nav-career-btn";
   careerBtn.setAttribute("data-open-career", "");
-  careerBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Ищем мастера</span>';
+  careerBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Ищем мастера</span>';
   mobileNav.appendChild(careerBtn);
 
   // Добавляем кнопку "Записаться"
   var bookingBtn = document.createElement("button");
   bookingBtn.className = "mobile-nav-link";
   bookingBtn.innerHTML = icons["booking"] + "<span>Записаться</span>";
-  bookingBtn.addEventListener("click", function(e) {
+  bookingBtn.addEventListener("click", function (e) {
     e.preventDefault();
     var modal = document.getElementById("bookingModal");
     if (modal && typeof window.openModal === "function") {
@@ -678,12 +743,12 @@ document.addEventListener("DOMContentLoaded", function() {
     }
   });
   mobileNav.appendChild(bookingBtn);
-  
+
   // Обработчик для кнопки контактов
   var contactsPopup = document.getElementById("contactsPopup");
   var contactsOverlay = document.getElementById("contactsOverlay");
   if (contactsPopup) {
-    contactsBtn.addEventListener("click", function(e) {
+    contactsBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       contactsPopup.classList.add("active");
       if (contactsOverlay) contactsOverlay.classList.add("active");

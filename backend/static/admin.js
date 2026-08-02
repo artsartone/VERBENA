@@ -2037,3 +2037,223 @@ async function deleteCareerApp(id) {
     showToast(e.message, "error");
   }
 }
+
+async function restartBot(bot) {
+  if (!confirm("Перезапустить бота?")) {
+    return;
+  }
+
+  const response = await fetch(`/api/admin/restart-bot/${bot}`, {
+    method: "POST",
+  });
+
+  const data = await response.json();
+
+  if (data.success) {
+    alert("Бот перезапущен");
+  } else {
+    alert("Ошибка: " + data.error);
+  }
+}
+
+async function loadBotsStatus() {
+  try {
+    const response = await fetch("/api/admin/bots/status");
+    const data = await response.json();
+
+    updateBotStatus("telegram-status", data["verbena-bot.service"]);
+
+    updateBotStatus("vk-status", data["beautyverbena-vk.service"]);
+  } catch (error) {
+    console.error("Ошибка получения статуса ботов:", error);
+  }
+}
+
+function updateBotStatus(elementId, status) {
+  const element = document.getElementById(elementId);
+
+  if (!element) return;
+
+  if (status === "active") {
+    element.textContent = "● Работает";
+    element.className = "bot-status bot-online";
+  } else if (status === "inactive") {
+    element.textContent = "● Остановлен";
+    element.className = "bot-status bot-offline";
+  } else {
+    element.textContent = "● Локальный режим";
+    2;
+    element.className = "bot-status bot-local";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", loadBotsStatus);
+
+/* ═══════════════════════════════════════════════════════════
+   Логи уведомлений — загрузка, рендер, удаление
+   ═══════════════════════════════════════════════════════════ */
+
+async function loadNotifyLogs() {
+  const tbody = document.getElementById("dataLogsBody");
+  if (!tbody) return;
+  tbody.innerHTML =
+    '<tr><td colspan="7" class="empty-state">Загрузка...</td></tr>';
+
+  try {
+    const res = await fetch("/api/data/logs/notifications");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const logs = await res.json();
+
+    if (!logs.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="7" class="empty-state">Логи пусты</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = logs
+      .map((log) => {
+        const channelBadge =
+          log.channel === "tg"
+            ? '<span class="badge badge-active">Telegram</span>'
+            : log.channel === "vk"
+              ? '<span class="badge badge-pending">VK</span>'
+              : `<span class="badge">${log.channel}</span>`;
+
+        return `
+        <tr data-log-id="${log.id}">
+          <td class="col-nowrap">${log.id}</td>
+          <td class="col-nowrap">#${log.booking_id || "—"}</td>
+          <td>${log.client_name || "—"}</td>
+          <td>${log.service || "—"}</td>
+          <td class="col-center">${channelBadge}</td>
+          <td class="col-nowrap">${log.created_at || "—"}</td>
+          <td class="col-center">
+            <button class="btn btn-sm btn-danger"
+                    onclick="deleteNotifyLog(${log.id}, this)"
+                    title="Удалить лог">
+              🗑
+            </button>
+          </td>
+        </tr>
+      `;
+      })
+      .join("");
+  } catch (err) {
+    console.error("loadNotifyLogs error:", err);
+    tbody.innerHTML =
+      '<tr><td colspan="7" class="empty-state">Ошибка загрузки</td></tr>';
+  }
+}
+
+async function deleteNotifyLog(logId, btnEl) {
+  if (!confirm(`Удалить лог уведомления #${logId}?`)) return;
+
+  const tr = btnEl.closest("tr");
+  if (tr) {
+    tr.style.opacity = "0.4";
+    btnEl.disabled = true;
+    btnEl.textContent = "⏳";
+  }
+
+  try {
+    const res = await fetch(`/api/data/logs/notifications/${logId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "HTTP " + res.status);
+    }
+
+    // Анимация удаления строки
+    if (tr) {
+      tr.style.transition = "opacity 0.3s, transform 0.3s";
+      tr.style.opacity = "0";
+      tr.style.transform = "translateX(20px)";
+      setTimeout(() => {
+        tr.remove();
+        // Если таблица пуста — показать заглушку
+        const tbody = document.getElementById("dataLogsBody");
+        if (tbody && !tbody.querySelector("tr")) {
+          tbody.innerHTML =
+            '<tr><td colspan="7" class="empty-state">Логи пусты</td></tr>';
+        }
+      }, 300);
+    }
+
+    showToast("Лог удалён", "success");
+  } catch (err) {
+    console.error("deleteNotifyLog error:", err);
+    showToast("Ошибка: " + err.message, "error");
+    if (tr) {
+      tr.style.opacity = "1";
+      btnEl.disabled = false;
+      btnEl.textContent = "🗑";
+    }
+  }
+}
+
+async function clearAllNotifyLogs() {
+  if (!confirm("Удалить ВСЕ логи уведомлений? Это действие необратимо."))
+    return;
+
+  try {
+    const res = await fetch("/api/data/logs/notifications", {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    showToast(data.message || "Все логи удалены", "success");
+    loadNotifyLogs();
+  } catch (err) {
+    console.error("clearAllNotifyLogs error:", err);
+    showToast("Ошибка: " + err.message, "error");
+  }
+}
+
+/* Toast уведомления (если ещё не определён) */
+function showToast(msg, type) {
+  let toast = document.getElementById("adminToast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "adminToast";
+    toast.className = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.className = "toast show " + (type || "");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.classList.remove("show");
+  }, 2500);
+}
+
+/* Автозагрузка при переключении на вкладку логов */
+function switchDataTab(tabName, btnEl) {
+  // Скрываем все блоки
+  document.getElementById("data-clients-block").style.display = "none";
+  document.getElementById("data-logs-block").style.display = "none";
+  document.getElementById("data-subs-block").style.display = "none";
+
+  // Сбрасываем стили кнопок
+  document.querySelectorAll('[id^="dataTabBtn"]').forEach((btn) => {
+    btn.className = "btn btn-sm btn-secondary";
+  });
+
+  // Показываем нужный блок
+  if (tabName === "clients") {
+    document.getElementById("data-clients-block").style.display = "block";
+    document.getElementById("dataTabBtnClients").className =
+      "btn btn-sm btn-success";
+    loadClients();
+  } else if (tabName === "logs") {
+    document.getElementById("data-logs-block").style.display = "block";
+    document.getElementById("dataTabBtnLogs").className =
+      "btn btn-sm btn-success";
+    loadNotifyLogs();
+  } else if (tabName === "subs") {
+    document.getElementById("data-subs-block").style.display = "block";
+    document.getElementById("dataTabBtnSubs").className =
+      "btn btn-sm btn-success";
+    loadSubscriptions();
+  }
+}

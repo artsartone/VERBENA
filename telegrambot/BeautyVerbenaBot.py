@@ -538,45 +538,47 @@ async def career_message_handler(update: Update,
 async def _submit_career_application(
         update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправить заявку на трудоустройство в API."""
-    # ✅ Получаем telegram_id пользователя
     telegram_id = str(
         update.effective_user.id) if update.effective_user else ""
-
     payload = {
         "client_name": context.user_data.get("career_name", ""),
         "client_phone": context.user_data.get("career_phone", ""),
         "experience": context.user_data.get("career_experience", ""),
         "resume": context.user_data.get("career_resume", ""),
-        "cover_letter": context.user_data.get("cover_letter", ""),
-        "source": "tg",  # ← ДОБАВЛЕНО
-        "telegram_id": telegram_id,  # ← ДОБАВЛЕНО
+        "cover_letter": context.user_data.get("career_cover_letter", ""),
+        "source": "tg",
+        "telegram_id": telegram_id,
     }
+
     try:
         resp = requests.post(f"{API_BASE}/api/career/submit",
                              json=payload,
                              timeout=10)
         if resp.status_code in (200, 201):
-            await update.message.reply_text(
-                "✅ <b>Отклик отправлен!</b>\n"
-                "Мы свяжемся с вами в ближайшее время.\n"
-                "Спасибо за интерес к работе в VERBENA! 🌸",
-                parse_mode="HTML")
+            text = ("✅ <b>Заявка успешно отправлена!</b>\n"
+                    "Мы свяжемся с вами в ближайшее время.\n"
+                    "Спасибо за интерес к работе в VERBENA! 🌸")
         else:
-            await update.message.reply_text(
-                "✅ Ваша заявка принята! Мы свяжемся с вами.")
+            text = "✅ Ваша заявка принята! Мы свяжемся с вами."
     except Exception:
-        await update.message.reply_text(
-            "✅ Ваша заявка принята! Мы свяжемся с вами.")
+        text = "✅ Ваша заявка принята! Мы свяжемся с вами."
+
     # Очищаем данные
     for key in [
             "career_step", "career_name", "career_phone", "career_experience",
             "resume", "cover_letter"
     ]:
         context.user_data.pop(key, None)
-    # Показываем главное меню
+
+    # ✅ ОДНО сообщение с кнопкой возврата в меню (вместо двух подряд)
+    keyboard = [[
+        InlineKeyboardButton("◀️ В меню", callback_data="back_to_menu")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        MAIN_MENU_TEXT,
-        reply_markup=MAIN_MENU_KEYBOARD,
+        text,
+        reply_markup=reply_markup,
         parse_mode="HTML",
     )
 
