@@ -775,8 +775,6 @@ document.addEventListener("DOMContentLoaded", function () {
 (function () {
   const mastersGrid = document.getElementById("mastersGrid");
   const currentDateEl = document.getElementById("currentDate");
-  const prevDayBtn = document.getElementById("prevDay");
-  const nextDayBtn = document.getElementById("nextDay");
 
   if (!mastersGrid || !currentDateEl) return;
 
@@ -1065,9 +1063,6 @@ document.addEventListener("DOMContentLoaded", function () {
       block: "start",
     });
   }
-
-  prevDayBtn.addEventListener("click", () => navigateDay(-1));
-  nextDayBtn.addEventListener("click", () => navigateDay(1));
 
   // ─── Календарь для выбора даты ───
   function createScheduleCalendar() {
