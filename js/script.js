@@ -1276,40 +1276,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // Swipe navigation
-  let touchStartX = 0;
-  let touchEndX = 0;
-
-  document.addEventListener(
-    "touchstart",
-    (e) => {
-      touchStartX = e.changedTouches[0].screenX;
-    },
-    { passive: true },
-  );
-
-  document.addEventListener(
-    "touchend",
-    (e) => {
-      touchEndX = e.changedTouches[0].screenX;
-      handleSwipe();
-    },
-    { passive: true },
-  );
-
-  function handleSwipe() {
-    const swipeThreshold = 50;
-    const diff = touchStartX - touchEndX;
-
-    if (Math.abs(diff) > swipeThreshold) {
-      if (diff > 0) {
-        navigateDay(1);
-      } else {
-        navigateDay(-1);
-      }
-    }
-  }
-
   // Инициализация
   fetchFreeSlots();
 })();
