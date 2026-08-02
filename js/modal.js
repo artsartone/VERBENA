@@ -28,6 +28,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // ─── State ───
   var selectedService = null;
   var selectedStaffId = null;
+  // Данные из клика по слоту в публичном расписании (мастер+дата+время).
+  // Услугу оттуда узнать нельзя — карточка мастера в расписании
+  // объединяет его свободные окна по всем услугам сразу. Подставляется
+  // автоматически, как только пользователь выберет услугу, которую этот
+  // мастер выполняет.
+  var pendingSlotPrefill = null;
+
+  function isoToDisplayDate(iso) {
+    var parts = String(iso).split("-");
+    if (parts.length !== 3) return iso;
+    return parts[2] + "." + parts[1] + "." + parts[0];
+  }
 
   function getApiBase() {
     if (
@@ -58,6 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ─── Reset all fields to initial state (only service active) ───
   function resetForm() {
+    pendingSlotPrefill = null;
     selectedService = null;
     selectedStaffId = null;
     serviceInput.value = "";
@@ -101,6 +114,29 @@ document.addEventListener("DOMContentLoaded", () => {
       '<option value="" selected disabled>Выберите время</option>';
     timeOptions.innerHTML = "";
     timeOptions.style.display = "none";
+
+    // ─── Автоподстановка мастера/даты/времени из клика по слоту ───
+    if (pendingSlotPrefill) {
+      var prefill = pendingSlotPrefill;
+      var staffIds = (ycServiceStaffIds[svc.id] || []).map(String);
+      if (staffIds.indexOf(prefill.staffId) !== -1) {
+        onMasterSelected(prefill.staffId);
+        dateInput.value = isoToDisplayDate(prefill.date);
+        window.tryLoadTimes().then(function () {
+          var btn =
+            timeOptions &&
+            timeOptions.querySelector(
+              '[data-time="' + prefill.time + '"]',
+            );
+          if (btn) btn.click();
+        });
+        // Разово — дальше пользователь распоряжается формой сам.
+        pendingSlotPrefill = null;
+      }
+      // Если мастер не выполняет выбранную услугу — оставляем
+      // pendingSlotPrefill: вдруг пользователь передумает и выберет
+      // другую услугу, которую этот мастер как раз делает.
+    }
   }
 
   // ─── After master selected ───
@@ -121,7 +157,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ─── Populate services ───
-  function populateServices() {
+  // filterStaffId (опционально): если задан — показываем только услуги,
+  // которые выполняет этот мастер (используется при заходе через клик по
+  // слоту в публичном расписании). Без параметра — полный список, как и
+  // раньше (кнопка "Записаться" и т.п. этот параметр не передают).
+  function populateServices(filterStaffId) {
     if (
       !serviceOptions ||
       !serviceInput ||
@@ -135,6 +175,16 @@ document.addEventListener("DOMContentLoaded", () => {
     ycCategories.forEach(function (cat) {
       var catName = cat.title || "Услуги";
       var catId = cat.id;
+      var matched = ycServices.filter(function (svc) {
+        var svcCatId = svc.category_id || (svc.category && svc.category.id);
+        if (svcCatId !== catId) return false;
+        if (filterStaffId) {
+          var ids = (ycServiceStaffIds[svc.id] || []).map(String);
+          if (ids.indexOf(String(filterStaffId)) === -1) return false;
+        }
+        return true;
+      });
+      if (matched.length === 0) return;
       var group = document.createElement("optgroup");
       group.label = catName;
       serviceInput.appendChild(group);
@@ -142,9 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
       header.className = "service-option-group";
       header.textContent = catName;
       serviceOptions.appendChild(header);
-      ycServices.forEach(function (svc) {
-        var svcCatId = svc.category_id || (svc.category && svc.category.id);
-        if (svcCatId !== catId) return;
+      matched.forEach(function (svc) {
         var opt = document.createElement("option");
         opt.value = svc.title;
         opt.textContent = svc.title;
@@ -288,7 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         });
       }
-      populateServices();
+      populateServices(pendingSlotPrefill ? pendingSlotPrefill.staffId : null);
       populateMasters();
       setFieldEnabled("step-service", true);
       setFieldEnabled("step-master", false);
@@ -642,6 +690,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  // ─── Открыть форму записи из клика по слоту в публичном расписании ───
+  // Мастер, дата и время уже известны — их подставим сами, как только
+  // пользователь выберет услугу (см. onServiceSelected). Останется
+  // указать только услугу, имя и телефон.
+  window.openBookingFromSlot = function (staffId, isoDate, time) {
+    if (!bookingModal) return;
+    window.openModal(bookingModal);
+    pendingSlotPrefill = {
+      staffId: String(staffId),
+      date: isoDate,
+      time: time,
+    };
+  };
+
   window.closeModal = function (modal) {
     modal.classList.remove("active");
     document.body.style.overflow = "";
@@ -818,3 +880,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 });
+
+// ─── AUTO-OPEN BOOKING MODAL FROM SCHEDULE PAGE ───
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("open_booking") === "1") {
+  // Ждём, пока загрузятся данные мастеров, затем открываем модалку
+  const checkAndOpen = setInterval(() => {
+    if (window.ycStaffMap && Object.keys(window.ycStaffMap).length > 0) {
+      clearInterval(checkAndOpen);
+      if (!bookingModal.classList.contains("active")) {
+        window.openModal(bookingModal);
+      }
+    }
+  }, 100);
+
+  // На случай, если данные не загрузятся за 5 секунд, всё равно откроем
+  setTimeout(() => {
+    clearInterval(checkAndOpen);
+    if (!bookingModal.classList.contains("active")) {
+      window.openModal(bookingModal);
+    }
+  }, 5000);
+}

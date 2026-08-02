@@ -258,13 +258,13 @@ def get_available_dates(service_id, staff_id, month=None, year=None):
     month = month or now.month
     year = year or now.year
 
-    url = (f"{YCLIENTS_API_BASE}/records/{YCLIENTS_COMPANY_ID}"
-           f"/book_dates/dates")
+    url = f"{YCLIENTS_API_BASE}/book_dates/{YCLIENTS_COMPANY_ID}"
     params = {
         "service_ids[]": [service_id],
         "staff_id": staff_id,
-        "month": month,
-        "year": year,
+        # У book_dates фильтр по месяцу задаётся одним параметром date
+        # (любой день внутри нужного месяца), а не month/year.
+        "date": f"{year:04d}-{month:02d}-01",
     }
     try:
         resp = requests.get(url, headers=_headers(), params=params, timeout=15)

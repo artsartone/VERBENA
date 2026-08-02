@@ -7,7 +7,23 @@ window.addEventListener("load", () => {
     document.getElementById("page").classList.add("show");
     document.documentElement.style.overflow = "";
     document.body.style.overflow = "";
-    window.scrollTo(0, 0);
+
+    // При заходе сразу по ссылке с якорем (например /#reviews) браузер
+    // пытается доскроллить к блоку ещё во время загрузки, пока прелоадер
+    // держит overflow: hidden — скролл не применяется. Раньше здесь всегда
+    // стоял scrollTo(0, 0), который затирал прицел на якорь. Теперь вместо
+    // этого доскролливаем до нужного блока сами, если якорь есть в URL.
+    if (location.hash) {
+      const target = document.getElementById(location.hash.slice(1));
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+      } else {
+        window.scrollTo(0, 0);
+      }
+    } else {
+      window.scrollTo(0, 0);
+    }
+
     // Restore normal scroll behavior after loader hides
     setTimeout(() => {
       history.scrollRestoration = "auto";
@@ -461,7 +477,6 @@ function buildReviewCardHtml(r, index) {
 }
 
 function initReviewToggle(card) {
-
   const toggleBtn = card.querySelector(".review-toggle-btn");
   if (!toggleBtn) return;
 
@@ -755,3 +770,543 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+
+// ═══════════ SCHEDULE SECTION ═══════════
+(function () {
+  const mastersGrid = document.getElementById("mastersGrid");
+  const currentDateEl = document.getElementById("currentDate");
+  const prevDayBtn = document.getElementById("prevDay");
+  const nextDayBtn = document.getElementById("nextDay");
+
+  if (!mastersGrid || !currentDateEl) return;
+
+  let currentDate = new Date();
+  let scheduleCalendar = null;
+  let calendarVisible = false;
+
+  function formatDateDisplay(date) {
+    const days = [
+      "Воскресенье",
+      "Понедельник",
+      "Вторник",
+      "Среда",
+      "Четверг",
+      "Пятница",
+      "Суббота",
+    ];
+    const months = [
+      "января",
+      "февраля",
+      "марта",
+      "апреля",
+      "мая",
+      "июня",
+      "июля",
+      "августа",
+      "сентября",
+      "октября",
+      "ноября",
+      "декабря",
+    ];
+    return `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]}`;
+  }
+
+  function formatDateForAPI(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  // ─── Категории мастеров (для шапки карточки в расписании) ───
+  // Строим карту staffId → [названия категорий] на основе того, какие
+  // услуги (со своим category_id) привязаны к мастеру. Загружается один
+  // раз и кэшируется — состав услуг/категорий за сессию не меняется.
+  let staffCategoryMap = null;
+  let staffCategoryPromise = null;
+
+  async function loadStaffCategoryMap() {
+    if (staffCategoryMap) return staffCategoryMap;
+    if (staffCategoryPromise) return staffCategoryPromise;
+
+    staffCategoryPromise = (async () => {
+      try {
+        const [catRes, svcRes] = await Promise.all([
+          fetch("/api/yclients/categories"),
+          fetch("/api/yclients/services"),
+        ]);
+        const categories = catRes.ok ? await catRes.json() : [];
+        const services = svcRes.ok ? await svcRes.json() : [];
+
+        const titleById = {};
+        (Array.isArray(categories) ? categories : []).forEach((c) => {
+          titleById[c.id] = c.title;
+        });
+
+        const map = {};
+        (Array.isArray(services) ? services : []).forEach((svc) => {
+          const catId = svc.category_id || (svc.category && svc.category.id);
+          const catTitle = titleById[catId];
+          if (!catTitle) return;
+          (svc.staff || []).forEach((st) => {
+            const sid = String(st.id);
+            if (!map[sid]) map[sid] = new Set();
+            map[sid].add(catTitle);
+          });
+        });
+
+        staffCategoryMap = {};
+        Object.keys(map).forEach((sid) => {
+          staffCategoryMap[sid] = Array.from(map[sid]);
+        });
+        return staffCategoryMap;
+      } catch (e) {
+        console.warn("Не удалось загрузить категории мастеров:", e);
+        staffCategoryMap = {};
+        return staffCategoryMap;
+      }
+    })();
+
+    return staffCategoryPromise;
+  }
+
+  async function fetchFreeSlots(isRetry = false) {
+    const dateStr = formatDateForAPI(currentDate);
+    currentDateEl.textContent = formatDateDisplay(currentDate);
+    mastersGrid.innerHTML = `
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <div>Загрузка расписания...</div>
+            </div>
+        `;
+
+    try {
+      const controller = new AbortController();
+      // Первый (некэшированный на бэкенде) запрос на дату может идти
+      // долго — бэкенд последовательно опрашивает YClients по каждой
+      // услуге и мастеру. Повторные запросы за ту же дату попадают в
+      // 5-минутный кэш на сервере и отвечают почти мгновенно, поэтому
+      // даём первому запросу больше времени.
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const res = await fetch(`/api/public/free-slots?date=${dateStr}`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) throw new Error("Ошибка сети");
+      const data = await res.json();
+      // Категории не критичны для отображения слотов, поэтому не
+      // задерживаем основной запрос и не валим его при сбое подгрузки карты.
+      const categoryMap = await loadStaffCategoryMap();
+      renderMasters(data.staff, dateStr, categoryMap);
+    } catch (e) {
+      console.error("Fetch error:", e);
+      // Один автоматический повтор: если это был обрыв по таймауту
+      // на «холодном» запросе, повтор почти наверняка попадёт в уже
+      // прогретый кэш на бэкенде и отработает быстро.
+      if (!isRetry) {
+        fetchFreeSlots(true);
+        return;
+      }
+      mastersGrid.innerHTML = `
+                <div class="loading-state">
+                    <div style="color: #8E9165; font-size: 48px; margin-bottom: 16px;">⚠️</div>
+                    <div>Не удалось загрузить данные</div>
+                    <button onclick="location.reload()" style="margin-top: 16px; padding: 12px 24px; background: #8E9165; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; min-height: 44px;">
+                        Повторить
+                    </button>
+                </div>
+            `;
+    }
+  }
+
+  function renderMasters(staff, dateStr, categoryMap) {
+    categoryMap = categoryMap || {};
+    mastersGrid.innerHTML = "";
+
+    if (!staff || staff.length === 0) {
+      mastersGrid.innerHTML = `
+            <div class="loading-state">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-bottom: 16px;">
+                  <defs>
+                    <linearGradient id="calendarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" style="stop-color:#8e9165;stop-opacity:1" />
+                      <stop offset="100%" style="stop-color:#65743d;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" style="stop-color:#bac4a2;stop-opacity:0.3" />
+                      <stop offset="100%" style="stop-color:#8e9165;stop-opacity:0.1" />
+                    </linearGradient>
+                  </defs>
+                  
+                  <!-- Тень -->
+                  <rect x="8" y="14" width="48" height="44" rx="4" fill="#000" opacity="0.05"/>
+                  
+                  <!-- Основа календаря -->
+                  <rect x="6" y="12" width="48" height="44" rx="4" fill="url(#pageGrad)" stroke="url(#calendarGrad)" stroke-width="2"/>
+                  
+                  <!-- Верхняя полоса (заголовок) -->
+                  <rect x="6" y="12" width="48" height="12" rx="4" fill="url(#calendarGrad)" opacity="0.15"/>
+                  <line x1="6" y1="24" x2="54" y2="24" stroke="url(#calendarGrad)" stroke-width="1.5"/>
+                  
+                  <!-- Крепления -->
+                  <circle cx="18" cy="12" r="2.5" fill="url(#calendarGrad)"/>
+                  <circle cx="46" cy="12" r="2.5" fill="url(#calendarGrad)"/>
+                  
+                  <!-- Сетка дат (3x3) -->
+                  <g opacity="0.6">
+                    <rect x="12" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="24" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="36" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    
+                    <rect x="12" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="24" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="36" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    
+                    <rect x="12" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="24" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                    <rect x="36" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
+                  </g>
+                  
+                  <!-- Перечёркивание (нет мест) -->
+                  <line x1="10" y1="50" x2="54" y2="18" stroke="url(#calendarGrad)" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>
+                </svg>
+                <div style="color: #8E9165; font-size: 16px; font-weight: 500;">Нет свободных окон на эту дату или у мастеров ещё нет графика</div>
+            </div>
+        `;
+      return;
+    }
+
+    staff.forEach((s) => {
+      const card = document.createElement("div");
+      card.className = "master-card";
+
+      const hasSlots = s.free_slots && s.free_slots.length > 0;
+      let slotsHtml = "";
+
+      if (hasSlots) {
+        slotsHtml = s.free_slots
+          .map((slot) => {
+            // Подстраховка от расхождения форматов ответа бэкенда:
+            // строка "10:00", объект {time: "10:00"} или старый {from, to}.
+            const t =
+              typeof slot === "string"
+                ? slot
+                : (slot?.time ?? slot?.from ?? "");
+            return `
+                        <div class="slot-chip" data-staff="${s.id}" data-date="${dateStr}" data-time="${t}" role="button" tabindex="0" aria-label="Записаться на ${t}">
+                            <span class="slot-time">${t}</span>
+                        </div>
+                    `;
+          })
+          .join("");
+      } else {
+        // Этот блок теперь не должен выполняться, т.к. бэкенд фильтрует
+        // Но оставим на случай, если данные придут пустыми
+        return; // пропускаем мастера без слотов
+      }
+
+      const categories = categoryMap[String(s.id)] || [];
+      const categoryHtml = categories.length
+        ? `<div class="master-category">${categories.join(" • ")}</div>`
+        : "";
+
+      card.innerHTML = `
+            <div class="master-header">
+                <h3 class="master-name">${s.name}</h3>
+                ${categoryHtml}
+            </div>
+            <div class="slots-container">${slotsHtml}</div>
+        `;
+
+      mastersGrid.appendChild(card);
+    });
+
+    // Обработчики кликов по слотам
+    document.querySelectorAll(".slot-chip").forEach((chip) => {
+      chip.addEventListener("click", () => handleSlotClick(chip));
+      chip.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleSlotClick(chip);
+        }
+      });
+    });
+  }
+
+  function handleSlotClick(chip) {
+    const bookingModal = document.getElementById("bookingModal");
+    if (!bookingModal) return;
+    const staffId = chip?.dataset.staff;
+    const date = chip?.dataset.date;
+    const time = chip?.dataset.time;
+    // openBookingFromSlot (modal.js) подставит мастера/дату/время сам,
+    // как только будет выбрана услуга — останутся только имя и телефон.
+    if (staffId && date && time && typeof window.openBookingFromSlot === "function") {
+      window.openBookingFromSlot(staffId, date, time);
+    } else if (typeof window.openModal === "function") {
+      window.openModal(bookingModal);
+    }
+  }
+
+  function navigateDay(direction) {
+    currentDate.setDate(currentDate.getDate() + direction);
+    fetchFreeSlots();
+    document.getElementById("schedule")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  prevDayBtn.addEventListener("click", () => navigateDay(-1));
+  nextDayBtn.addEventListener("click", () => navigateDay(1));
+
+  // ─── Календарь для выбора даты ───
+  function createScheduleCalendar() {
+    if (scheduleCalendar) return scheduleCalendar;
+
+    scheduleCalendar = document.createElement("div");
+    scheduleCalendar.className = "schedule-calendar";
+    scheduleCalendar.style.display = "none";
+    // На случай, если внешний CSS не задаёт box-sizing: border-box —
+    // без этого паддинги/бордеры ячеек могут вытолкнуть дни за пределы
+    // блока фиксированной ширины (calWidth в positionCalendar).
+    scheduleCalendar.style.boxSizing = "border-box";
+    document.body.appendChild(scheduleCalendar);
+
+    // Пересчёт позиции при изменении размера окна
+    const reposition = () => {
+      if (calendarVisible && scheduleCalendar) {
+        positionCalendar();
+      }
+    };
+    window.addEventListener("resize", reposition, { passive: true });
+
+    // При скролле страницы закрываем календарь, а не пытаемся его
+    // репозиционировать «на лету» — на мобильных событие scroll во время
+    // инерционной прокрутки приходит с задержкой, из-за чего календарь
+    // визуально «тащится» вместе со страницей вместо того, чтобы стоять
+    // на месте или мгновенно следовать за кнопкой.
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (calendarVisible) hideCalendar();
+      },
+      { passive: true },
+    );
+
+    return scheduleCalendar;
+  }
+
+  function renderScheduleCalendar() {
+    const cal = createScheduleCalendar();
+    const viewDate = new Date(currentDate);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+
+    const monthNames = [
+      "Январь",
+      "Февраль",
+      "Март",
+      "Апрель",
+      "Май",
+      "Июнь",
+      "Июль",
+      "Август",
+      "Сентябрь",
+      "Октябрь",
+      "Ноябрь",
+      "Декабрь",
+    ];
+    const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+    const firstDay = new Date(year, month, 1);
+    let startDay = firstDay.getDay() - 1;
+    if (startDay < 0) startDay = 6;
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let html = `
+        <div class="sc-header">
+            <button type="button" class="sc-nav sc-prev">❮</button>
+            <span class="sc-title">${monthNames[month]} ${year}</span>
+            <button type="button" class="sc-nav sc-next">❯</button>
+        </div>
+        <div class="sc-weekdays" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;box-sizing:border-box;width:100%;">
+    `;
+
+    dayNames.forEach((day) => {
+      html += `<span style="box-sizing:border-box;min-width:0;text-align:center;overflow:hidden;">${day}</span>`;
+    });
+
+    html += `</div><div class="sc-days" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;box-sizing:border-box;width:100%;">`;
+
+    const dayCellStyle =
+      "box-sizing:border-box;min-width:0;width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;overflow:hidden;";
+
+    for (let i = 0; i < startDay; i++) {
+      html += `<span class="sc-day sc-empty" style="${dayCellStyle}"></span>`;
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d);
+      let cls = "sc-day";
+
+      if (date < today) {
+        cls += " sc-disabled";
+      } else if (date.getTime() === currentDate.getTime()) {
+        cls += " sc-selected";
+      }
+
+      html += `<span class="${cls}" data-day="${d}" style="${dayCellStyle}">${d}</span>`;
+    }
+
+    html += `</div>`;
+    cal.innerHTML = html;
+
+    // Обработчики навигации
+    cal.querySelector(".sc-prev")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      renderScheduleCalendar();
+      positionCalendar();
+    });
+
+    cal.querySelector(".sc-next")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      renderScheduleCalendar();
+      positionCalendar();
+    });
+
+    // Обработчики выбора дня
+    cal
+      .querySelectorAll(".sc-day:not(.sc-empty):not(.sc-disabled)")
+      .forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const day = parseInt(el.dataset.day, 10);
+          currentDate = new Date(year, month, day);
+          hideCalendar();
+          fetchFreeSlots();
+        });
+      });
+  }
+
+  function positionCalendar() {
+    if (!scheduleCalendar) return;
+
+    const rect = currentDateEl.getBoundingClientRect();
+    const calWidth = 280;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Вычисляем позицию
+    let left = rect.left + rect.width / 2 - calWidth / 2;
+    let top = rect.bottom + 8;
+
+    // Проверяем, не выходит ли календарь за правый край
+    if (left + calWidth > viewportWidth - 16) {
+      left = viewportWidth - calWidth - 16;
+    }
+
+    // Проверяем, не выходит ли за левый край
+    if (left < 16) {
+      left = 16;
+    }
+
+    // Проверяем, не выходит ли за нижний край
+    const calHeight = scheduleCalendar.offsetHeight || 300;
+    if (top + calHeight > viewportHeight - 16) {
+      // Если не помещается снизу, показываем сверху
+      top = rect.top - calHeight - 8;
+    }
+
+    scheduleCalendar.style.position = "fixed";
+    scheduleCalendar.style.top = `${top}px`;
+    scheduleCalendar.style.left = `${left}px`;
+    scheduleCalendar.style.width = `${calWidth}px`;
+    scheduleCalendar.style.zIndex = "10000";
+  }
+
+  function showCalendar() {
+    const cal = createScheduleCalendar();
+    renderScheduleCalendar();
+    cal.style.display = "block";
+    calendarVisible = true;
+    // Пересчитываем позицию после отображения
+    requestAnimationFrame(() => positionCalendar());
+  }
+
+  function hideCalendar() {
+    if (scheduleCalendar) {
+      scheduleCalendar.style.display = "none";
+      calendarVisible = false;
+    }
+  }
+
+  function toggleCalendar() {
+    if (calendarVisible) {
+      hideCalendar();
+    } else {
+      showCalendar();
+    }
+  }
+
+  // Клик по дате - показать/скрыть календарь
+  currentDateEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCalendar();
+  });
+
+  // Клик вне календаря - скрыть
+  document.addEventListener("click", (e) => {
+    if (
+      calendarVisible &&
+      scheduleCalendar &&
+      !scheduleCalendar.contains(e.target) &&
+      e.target !== currentDateEl
+    ) {
+      hideCalendar();
+    }
+  });
+
+  // Swipe navigation
+  let touchStartX = 0;
+  let touchEndX = 0;
+
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    },
+    { passive: true },
+  );
+
+  document.addEventListener(
+    "touchend",
+    (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      handleSwipe();
+    },
+    { passive: true },
+  );
+
+  function handleSwipe() {
+    const swipeThreshold = 50;
+    const diff = touchStartX - touchEndX;
+
+    if (Math.abs(diff) > swipeThreshold) {
+      if (diff > 0) {
+        navigateDay(1);
+      } else {
+        navigateDay(-1);
+      }
+    }
+  }
+
+  // Инициализация
+  fetchFreeSlots();
+})();

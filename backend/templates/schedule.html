@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#F9F8F4">
+    <meta name="format-detection" content="telephone=no">
+    <title>Свободные окна — VERBENA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #F9F8F4;
+            --bg-card: #FFFFFF;
+            --olive-light: #E8E6D9;
+            --olive-mid: #A3A682;
+            --olive-dark: #8E9165;
+            --olive-darker: #5C5E43;
+            --text-main: #2C2D27;
+            --text-muted: #7A7C6F;
+            --shadow-sm: 0 2px 8px rgba(92, 94, 67, 0.06);
+            --shadow-md: 0 8px 24px rgba(92, 94, 67, 0.12);
+            --radius: 16px;
+            --safe-area-top: env(safe-area-inset-top);
+            --safe-area-bottom: env(safe-area-inset-bottom);
+        }
+
+        * { 
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            font-size: 16px;
+            -webkit-text-size-adjust: 100%;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            line-height: 1.5;
+            min-height: 100vh;
+            min-height: 100dvh;
+            overflow-x: hidden;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Header - sticky, не fixed */
+        .header {
+            padding: 16px 20px;
+            padding-top: calc(16px + var(--safe-area-top));
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--olive-light);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(18px, 4vw, 24px);
+            color: var(--olive-darker);
+            text-decoration: none;
+            letter-spacing: 1px;
+            font-weight: 700;
+        }
+
+        .btn-back {
+            padding: 10px 16px;
+            background: transparent;
+            color: var(--olive-dark);
+            border: 1px solid var(--olive-light);
+            border-radius: 30px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-back:active {
+            background: var(--olive-light);
+            transform: scale(0.98);
+        }
+
+        /* Container */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px 16px;
+            padding-bottom: calc(80px + var(--safe-area-bottom));
+        }
+
+        .page-title {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(24px, 6vw, 36px);
+            color: var(--olive-darker);
+            text-align: center;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+
+        .page-subtitle {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: clamp(14px, 3.5vw, 16px);
+            margin-bottom: 32px;
+            padding: 0 8px;
+        }
+
+        /* Date Navigation */
+        .date-nav {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 32px;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            position: sticky;
+            top: 76px;
+            z-index: 90;
+        }
+
+        .btn-nav {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 1px solid var(--olive-light);
+            background: var(--bg-card);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: var(--olive-darker);
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+            min-width: 48px;
+            min-height: 48px;
+            touch-action: manipulation;
+            flex-shrink: 0;
+        }
+
+        .btn-nav:active {
+            background: var(--olive-dark);
+            color: white;
+            border-color: var(--olive-dark);
+            transform: scale(0.95);
+        }
+
+        .current-date {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(16px, 4.5vw, 22px);
+            color: var(--text-main);
+            text-align: center;
+            flex: 1;
+            min-width: 0;
+            padding: 0 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Masters Grid */
+        .masters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .master-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(232, 230, 217, 0.5);
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .master-card:active {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .master-header {
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px dashed var(--olive-light);
+        }
+
+        .master-name {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(18px, 4vw, 22px);
+            color: var(--olive-darker);
+            line-height: 1.3;
+        }
+
+        /* Slots Container */
+        .slots-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-grow: 1;
+        }
+
+        .slot-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #F4F5F0;
+            border: 1px solid #D1D3C4;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--olive-darker);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            flex: 1 1 calc(50% - 5px);
+            min-width: 140px;
+            min-height: 48px;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .slot-chip:active {
+            background: var(--olive-dark);
+            color: white;
+            border-color: var(--olive-dark);
+            transform: scale(0.98);
+        }
+
+        .slot-chip:hover {
+            background: var(--olive-dark);
+            color: white;
+            border-color: var(--olive-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(142, 145, 101, 0.3);
+        }
+
+        .slot-time {
+            white-space: nowrap;
+        }
+
+        /* Book Button */
+        .master-book-btn {
+            width: 100%;
+            padding: 14px 20px;
+            background: var(--olive-dark);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: auto;
+            min-height: 48px;
+            touch-action: manipulation;
+        }
+
+        .master-book-btn:hover {
+            background: var(--olive-darker);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(92, 94, 67, 0.3);
+        }
+
+        .master-book-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(92, 94, 67, 0.2);
+        }
+
+        .no-slots {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 24px 16px;
+            width: 100%;
+            font-size: 14px;
+        }
+
+        /* Loading State */
+        .loading-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--olive-light);
+            border-top-color: var(--olive-dark);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ─── MOBILE ADAPTATIONS ─── */
+        
+        /* Small phones (320px - 375px) */
+        @media (max-width: 375px) {
+            :root {
+                font-size: 14px;
+            }
+            
+            .container {
+                padding: 16px 12px;
+                padding-bottom: calc(80px + var(--safe-area-bottom));
+            }
+            
+            .master-card {
+                padding: 16px;
+            }
+            
+            .slot-chip {
+                flex: 1 1 100%;
+                min-height: 52px;
+                padding: 14px 12px;
+                font-size: 13px;
+            }
+            
+            .master-book-btn {
+                padding: 16px 20px;
+                font-size: 14px;
+                min-height: 52px;
+            }
+            
+            .date-nav {
+                padding: 12px;
+                gap: 12px;
+            }
+            
+            .btn-nav {
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                min-height: 44px;
+                font-size: 18px;
+            }
+        }
+
+        /* Tablets (768px - 1024px) */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .masters-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 24px;
+            }
+            
+            .container {
+                padding: 32px 24px;
+                padding-bottom: calc(80px + var(--safe-area-bottom));
+            }
+        }
+
+        /* Landscape orientation on mobile */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .header {
+                padding: 8px 16px;
+                padding-top: calc(8px + var(--safe-area-top));
+            }
+            
+            .page-title {
+                font-size: 24px;
+                margin-bottom: 4px;
+            }
+            
+            .page-subtitle {
+                font-size: 14px;
+                margin-bottom: 20px;
+            }
+            
+            .date-nav {
+                margin-bottom: 20px;
+                padding: 12px;
+                top: 60px;
+            }
+            
+            .master-card {
+                padding: 16px;
+            }
+            
+            .slots-container {
+                gap: 8px;
+            }
+            
+            .slot-chip {
+                padding: 10px 12px;
+                min-height: 44px;
+                font-size: 13px;
+            }
+            
+            .master-book-btn {
+                padding: 12px 16px;
+                min-height: 44px;
+                font-size: 13px;
+            }
+        }
+
+        /* Touch devices optimizations */
+        @media (hover: none) and (pointer: coarse) {
+            .slot-chip {
+                min-height: 52px;
+                padding: 14px 12px;
+            }
+            
+            .btn-nav, .btn-back, .master-book-btn {
+                min-height: 48px;
+            }
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-main: #1a1a1a;
+                --bg-card: #2d2d2d;
+                --olive-light: #3d3d3d;
+                --olive-mid: #5a5a5a;
+                --olive-dark: #6b6b6b;
+                --olive-darker: #8e9165;
+                --text-main: #e0e0e0;
+                --text-muted: #a0a0a0;
+            }
+            
+            .slot-chip {
+                background: #3d3d3d;
+                border-color: #5a5a5a;
+                color: #e0e0e0;
+            }
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* Prevent zoom on input focus (iOS) */
+        input, select, textarea {
+            font-size: 16px !important;
+        }
+
+        /* Smooth scrolling for iOS */
+        @supports (-webkit-overflow-scrolling: touch) {
+            body {
+                -webkit-overflow-scrolling: touch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="/" class="logo">VERBENA</a>
+        <a href="/" class="btn-back">← На главную</a>
+    </header>
+
+    <main class="container">
+        <h1 class="page-title">Свободные окна мастеров</h1>
+        <p class="page-subtitle">Выберите удобное время для визита в студию</p>
+
+        <div class="date-nav">
+            <button class="btn-nav" id="prevDay" aria-label="Предыдущий день">❮</button>
+            <div class="current-date" id="currentDate">Загрузка...</div>
+            <button class="btn-nav" id="nextDay" aria-label="Следующий день">❯</button>
+        </div>
+
+        <div class="masters-grid" id="mastersGrid">
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <div>Загрузка расписания...</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const mastersGrid = document.getElementById('mastersGrid');
+        const currentDateEl = document.getElementById('currentDate');
+        const prevDayBtn = document.getElementById('prevDay');
+        const nextDayBtn = document.getElementById('nextDay');
+        let currentDate = new Date();
+
+        // Format date for display
+        function formatDateDisplay(date) {
+            const days = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+            const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+            return `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]}`;
+        }
+
+        // Format date for API
+        function formatDateForAPI(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Fetch free slots
+        async function fetchFreeSlots() {
+            const dateStr = formatDateForAPI(currentDate);
+            currentDateEl.textContent = formatDateDisplay(currentDate);
+            
+            mastersGrid.innerHTML = `
+                <div class="loading-state">
+                    <div class="loading-spinner"></div>
+                    <div>Загрузка расписания...</div>
+                </div>
+            `;
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const res = await fetch(`/api/public/free-slots?date=${dateStr}`, {
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!res.ok) throw new Error("Ошибка сети");
+                const data = await res.json();
+                renderMasters(data.staff, dateStr);
+            } catch (e) {
+                console.error('Fetch error:', e);
+                mastersGrid.innerHTML = `
+                    <div class="loading-state">
+                        <div style="color: var(--olive-dark); font-size: 48px; margin-bottom: 16px;">⚠️</div>
+                        <div>Не удалось загрузить данные</div>
+                        <button onclick="fetchFreeSlots()" style="margin-top: 16px; padding: 12px 24px; background: var(--olive-dark); color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; min-height: 44px;">
+                            Повторить
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        // Render masters
+        function renderMasters(staff, dateStr) {
+            mastersGrid.innerHTML = '';
+            
+            if (!staff || staff.length === 0) {
+                mastersGrid.innerHTML = `
+                    <div class="loading-state">
+                        <div style="color: var(--olive-dark); font-size: 48px; margin-bottom: 16px;">📅</div>
+                        <div>Нет данных на эту дату</div>
+                    </div>
+                `;
+                return;
+            }
+
+            staff.forEach(s => {
+                const card = document.createElement('div');
+                card.className = 'master-card';
+
+                const hasSlots = s.free_slots && s.free_slots.length > 0;
+
+                let slotsHtml = '';
+                if (hasSlots) {
+                    slotsHtml = s.free_slots.map(slot => `
+                        <div class="slot-chip" data-staff="${s.id}" data-date="${dateStr}" role="button" tabindex="0" aria-label="Записаться на ${slot.from} – ${slot.to}">
+                            <span class="slot-time">${slot.from} – ${slot.to}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    slotsHtml = '<div class="no-slots">Нет свободных окон</div>';
+                }
+
+                card.innerHTML = `
+                    <div class="master-header">
+                        <h3 class="master-name">${s.name}</h3>
+                    </div>
+                    <div class="slots-container">${slotsHtml}</div>
+                    <button class="master-book-btn" data-staff="${s.id}" data-date="${dateStr}">
+                        Записаться
+                    </button>
+                `;
+
+                mastersGrid.appendChild(card);
+            });
+
+            // Add click handlers for slot chips
+            document.querySelectorAll('.slot-chip').forEach(chip => {
+                chip.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSlotClick(chip);
+                    }
+                });
+                chip.addEventListener('click', () => handleSlotClick(chip));
+            });
+
+            // Add click handlers for book buttons
+            document.querySelectorAll('.master-book-btn').forEach(btn => {
+                btn.addEventListener('click', () => handleBookBtnClick(btn));
+            });
+        }
+
+        function handleSlotClick(chip) {
+            chip.style.transform = 'scale(0.98)';
+            setTimeout(() => {
+                chip.style.transform = '';
+            }, 150);
+
+            setTimeout(() => {
+                window.location.href = `/?open_booking=1`;
+            }, 150);
+        }
+
+        function handleBookBtnClick(btn) {
+            btn.style.transform = 'scale(0.98)';
+            setTimeout(() => {
+                btn.style.transform = '';
+            }, 150);
+
+            setTimeout(() => {
+                window.location.href = `/?open_booking=1`;
+            }, 150);
+        }
+
+        // Navigation
+        function navigateDay(direction) {
+            if (navigator.vibrate) {
+                navigator.vibrate(10);
+            }
+            
+            currentDate.setDate(currentDate.getDate() + direction);
+            fetchFreeSlots();
+            
+            // Scroll to top smoothly
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        prevDayBtn.addEventListener('click', () => navigateDay(-1));
+        nextDayBtn.addEventListener('click', () => navigateDay(1));
+
+        // Touch events for swipe navigation
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        document.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        document.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        }, { passive: true });
+
+        function handleSwipe() {
+            const swipeThreshold = 50;
+            const diff = touchStartX - touchEndX;
+            
+            if (Math.abs(diff) > swipeThreshold) {
+                if (diff > 0) {
+                    navigateDay(1);
+                } else {
+                    navigateDay(-1);
+                }
+            }
+        }
+
+        // Initialize
+        fetchFreeSlots();
+    </script>
+</body>
+</html>
