@@ -876,7 +876,10 @@ document.addEventListener("DOMContentLoaded", function () {
     mastersGrid.innerHTML = `
             <div class="loading-state">
                 <div class="loading-spinner"></div>
-                <div>Загрузка расписания...</div>
+                <div>
+                  Проверяем занятость наших мастеров...<br>
+                  Это может занять некоторое время.
+                </div>
             </div>
         `;
 
@@ -1042,7 +1045,12 @@ document.addEventListener("DOMContentLoaded", function () {
     const time = chip?.dataset.time;
     // openBookingFromSlot (modal.js) подставит мастера/дату/время сам,
     // как только будет выбрана услуга — останутся только имя и телефон.
-    if (staffId && date && time && typeof window.openBookingFromSlot === "function") {
+    if (
+      staffId &&
+      date &&
+      time &&
+      typeof window.openBookingFromSlot === "function"
+    ) {
       window.openBookingFromSlot(staffId, date, time);
     } else if (typeof window.openModal === "function") {
       window.openModal(bookingModal);
