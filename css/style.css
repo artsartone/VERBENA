@@ -10,9 +10,8 @@ nav {
   justify-content: space-between;
   align-items: center;
   padding: 0;
-  background: #bac4a2;
+  background: linear-gradient(135deg, #bac4a2 0%, #aeb994 50%, #8e9165 100%);
   border-bottom: 1px solid #cbd2b0;
-  backdrop-filter: blur(18px);
 }
 
 .header-phone {
