@@ -1762,16 +1762,26 @@ def get_service_categories_public():
 
 @app.route("/api/yclients/categories", methods=["GET"])
 def yclients_categories():
-    """Fetch service categories from YClients (admin)."""
-    categories = yc.get_service_categories()
+    """Fetch service categories from YClients (admin).
+    Кэшируем под тем же ключом, что и /api/service_categories — это один
+    и тот же вызов yc.get_service_categories(), не нужно дублировать."""
+    categories = get_cached('service_categories',
+                            lambda: yc.get_service_categories())
     return jsonify(categories)
 
 
 @app.route("/api/yclients/services", methods=["GET"])
 def yclients_services():
-    """Fetch services from YClients (admin). Optional ?category_id= filter."""
+    """Fetch services from YClients (admin). Optional ?category_id= filter.
+    Без category_id кэшируем под тем же ключом 'services_list', что и
+    расчёт free-slots — раньше это был отдельный живой запрос к YClients
+    при каждой загрузке страницы (и не один, а сразу из двух разных мест
+    на фронте), конкурирующий за лимит запросов с расчётом на "сегодня"."""
     category_id = request.args.get("category_id")
-    services = yc.get_services(category_id=category_id)
+    if category_id:
+        services = yc.get_services(category_id=category_id)
+    else:
+        services = get_cached('services_list', lambda: yc.get_services())
     return jsonify(services)
 
 
@@ -2397,9 +2407,26 @@ def _calculate_free_slots(target_date):
     # этапе уходит время, а не гадать по общей длительности запроса.
     _t_start = time.time()
 
-    # 1. Получаем все услуги из YClients
+    # 1. Получаем все услуги из YClients.
+    # Каталог услуг меняется не поминутно — кэшируем на 10 минут под общим
+    # ключом 'services_list'. Раньше это был живой запрос при КАЖДОМ
+    # расчёте (и в прогреве на 5 дней, и на каждый визит), а страница при
+    # загрузке ещё и сама дважды параллельно дёргала /api/yclients/services
+    # (см. loadAndRenderServices и loadStaffCategoryMap в script.js) —
+    # всё это конкурировало за один и тот же лимит запросов к YClients
+    # именно в момент расчёта "сегодня". Общий кэш убирает эту конкуренцию.
+    # get_cached_dynamic (не обычный get_cached!) — чтобы неудачный запрос
+    # не залип в кэше на все 10 минут, а закэшировался лишь на 45 секунд.
+    def _fetch_services():
+        local_err = []
+        data = yc.get_services(error_flag=local_err)
+        return data, bool(local_err)
+
     try:
-        all_services = yc.get_services(error_flag=errors)
+        all_services, services_had_err = get_cached_dynamic(
+            'services_list', _fetch_services, ttl_success=600, ttl_error=45)
+        if services_had_err:
+            errors.append(True)
     except Exception as e:
         logger.error(f"Failed to get services from YClients: {e}")
         return [], True
