@@ -1,21 +1,8 @@
-"""
-YClients API integration module.
-
-Provides functions to interact with YClients API for:
-- Fetching service categories
-- Fetching services (with embedded staff info)
-- Fetching available time slots
-- Creating bookings
-
-Requires environment variables:
-- YCLIENTS_PARTNER_TOKEN: partner token (from YClients app)
-- YCLIENTS_USER_TOKEN: user token (from YClients app)
-- YCLIENTS_COMPANY_ID: your company ID (2101920)
-"""
-
 import os
 import time
 import logging
+import threading
+import collections
 from datetime import datetime
 
 import requests
@@ -24,34 +11,61 @@ logger = logging.getLogger(__name__)
 
 # ─── Constants ───
 YCLIENTS_API_BASE = "https://api.yclients.com/api/v1"
-YCLIENTS_PARTNER_TOKEN = os.environ.get("YCLIENTS_PARTNER_TOKEN",
-                                        "dyx8KA6DiXHjYV4ZU9o7")
-YCLIENTS_USER_TOKEN = os.environ.get("YCLIENTS_USER_TOKEN",
-                                     "634fa473bd2937298aeed3fe640387ee")
-YCLIENTS_COMPANY_ID = os.environ.get("YCLIENTS_COMPANY_ID", "2101920")
+YCLIENTS_PARTNER_TOKEN = os.environ.get("YCLIENTS_PARTNER_TOKEN")
+YCLIENTS_USER_TOKEN = os.environ.get("YCLIENTS_USER_TOKEN")
+YCLIENTS_COMPANY_ID = os.environ.get("YCLIENTS_COMPANY_ID")
 
 # For backward compatibility
 YCLIENTS_TOKEN = YCLIENTS_PARTNER_TOKEN
 
 
-def _request_with_retry(method, url, retries=2, backoff=0.4, timeout=15,
+# ─── Общий ограничитель скорости запросов к YClients ───
+# YClients документирует жёсткий лимит: не более 5 запросов в секунду на IP
+# (https://yclientsen.docs.apiary.io/). Раньше параллелизм ограничивался
+# только локально, внутри одного расчёта (_YC_MAX_WORKERS в app.py) — но
+# это не защищает от превышения лимита, когда одновременно работают
+# НЕСКОЛЬКО независимых источников запросов: фоновый прогрев кэша,
+# реальные посетители страницы расписания, форма записи, админка и т.д.
+# Каждый по отдельности укладывался в свой локальный лимит, а суммарно —
+# нет. На проде (больше услуг/мастеров в реальном аккаунте + реальный
+# трафик поверх фонового прогрева) это легко превышает 5 req/sec, отсюда
+# и медленные/ошибочные ответы, которых нет в локальном тесте с маленьким
+# тестовым аккаунтом и без параллельного трафика.
+#
+# Это единственная точка, через которую идут вообще все запросы модуля
+# (_request_with_retry), поэтому лимит соблюдается глобально для всего
+# процесса, а не только внутри одной функции.
+_RATE_LIMIT_PER_SEC = 4  # запас под официальный лимит YClients в 5/сек
+_rate_lock = threading.Lock()
+_rate_window = collections.deque()  # timestamps последних запросов
+
+
+def _rate_limit_wait():
+    """Блокирует вызывающий поток, пока в скользящем окне последней
+    секунды не освободится место — не более _RATE_LIMIT_PER_SEC
+    запросов в секунду суммарно от всего процесса."""
+    while True:
+        with _rate_lock:
+            now = time.monotonic()
+            while _rate_window and now - _rate_window[0] > 1.0:
+                _rate_window.popleft()
+            if len(_rate_window) < _RATE_LIMIT_PER_SEC:
+                _rate_window.append(now)
+                return
+            sleep_for = 1.0 - (now - _rate_window[0])
+        time.sleep(max(sleep_for, 0.01))
+
+
+def _request_with_retry(method,
+                        url,
+                        retries=1,
+                        backoff=0.4,
+                        timeout=15,
                         **kwargs):
-    """Выполняет HTTP-запрос с повторными попытками при ВРЕМЕННЫХ сбоях:
-    таймауты, обрывы соединения, а также HTTP 429 (rate limit) и 5xx от
-    самого YClients. Именно такие сбои и вызывали ситуацию, когда при
-    "холодном" расчёте (пустой кэш) параллельная пачка из 10+ запросов
-    к YClients частично проваливалась, а пустой результат затем
-    кэшировался как будто это реальные данные.
 
-    НЕ повторяет обычные 4xx (кроме 429) — там повтор точно не поможет,
-    это ошибка запроса/логики, а не временный сбой сети.
-
-    Возвращает Response (последний полученный, даже если статус
-    ошибочный — пусть вызывающий код сам решает, как логировать) или
-    None, если не удалось даже установить соединение ни разу.
-    """
     last_resp = None
     for attempt in range(retries + 1):
+        _rate_limit_wait()
         try:
             resp = requests.request(method, url, timeout=timeout, **kwargs)
         except (requests.exceptions.Timeout,
@@ -65,8 +79,7 @@ def _request_with_retry(method, url, retries=2, backoff=0.4, timeout=15,
                 time.sleep(backoff * (attempt + 1))
                 continue
             logger.error(
-                f"YClients {method.upper()} {url} — все попытки истощены: {e}"
-            )
+                f"YClients {method.upper()} {url} — все попытки истощены: {e}")
             return None
 
         if resp.status_code == 429 or resp.status_code >= 500:
@@ -86,11 +99,7 @@ def _request_with_retry(method, url, retries=2, backoff=0.4, timeout=15,
 
 
 def _headers():
-    """
-    YClients v1 API requires:
-    - Authorization: Bearer {partner_token}, User {user_token}
-    - Accept: application/vnd.api.v2+json
-    """
+
     return {
         "Authorization":
         f"Bearer {YCLIENTS_PARTNER_TOKEN}, User {YCLIENTS_USER_TOKEN}",
@@ -103,17 +112,7 @@ def _headers():
 
 
 def get_service_categories(error_flag=None):
-    """
-    Fetch all service categories from YClients.
-    Uses /service_categories/ endpoint (not /categories).
 
-    Args:
-        error_flag: опциональный list; при сбое запроса в него добавляется
-        True, чтобы вызывающий код мог отличить "реально пусто" от
-        "не удалось узнать". По умолчанию None — поведение не меняется.
-
-    Returns list of dicts with keys: id, title, category_id, etc.
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
@@ -146,20 +145,7 @@ def get_service_categories(error_flag=None):
 
 
 def get_services(category_id=None, error_flag=None):
-    """
-    Fetch services from YClients.
-    
-    Each service includes staff info in the 'staff' field.
 
-    Args:
-        category_id: optional category ID to filter by.
-        error_flag: опциональный list; при сбое запроса в него добавляется
-        True, чтобы вызывающий код мог отличить "реально пусто" от
-        "не удалось узнать". По умолчанию None — поведение не меняется.
-
-    Returns list of service dicts with keys: id, title, category_id, price_min,
-    price_max, duration, staff (list), etc.
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
@@ -172,7 +158,10 @@ def get_services(category_id=None, error_flag=None):
     if category_id:
         params["category_id"] = category_id
     try:
-        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
         if resp is not None and resp.status_code == 200:
             data = resp.json()
             return data.get("data", [])
@@ -191,12 +180,7 @@ def get_services(category_id=None, error_flag=None):
 
 
 def get_all_staff_from_services():
-    """
-    Extract unique staff from all services.
-    Each service has 'staff' field with [{id, name, ...}].
-    
-    Returns list of unique staff dicts: {id, name, specialization?}.
-    """
+
     services = get_services()
     staff_map = {}
     for svc in services:
@@ -215,32 +199,12 @@ def get_all_staff_from_services():
 
 
 def get_staff():
-    """
-    Fetch all staff from YClients via services.
-    YClients services endpoint includes staff data, so no separate staff endpoint needed.
-    """
+
     return get_all_staff_from_services()
 
 
 def get_staff_for_booking(service_id=None, error_flag=None):
-    """
-    Fetch staff available for booking, optionally filtered by service.
 
-    Uses the /book_staff/{company_id} endpoint — the same one YClients' own
-    booking widget uses to show "which master performs this service". This is
-    the reliable way to filter staff by service: the plain /services/ endpoint's
-    embedded 'staff' field isn't populated for every company/service.
-
-    Args:
-        service_id: optional YClients service ID to filter staff by. If omitted,
-        returns all staff bookable online.
-        error_flag: опциональный list; при сбое запроса в него добавляется
-        True, чтобы вызывающий код мог отличить "реально пусто" от
-        "не удалось узнать". По умолчанию None — поведение не меняется.
-
-    Returns:
-        List of staff dicts (id, name, specialization, avatar, etc.).
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
@@ -253,7 +217,10 @@ def get_staff_for_booking(service_id=None, error_flag=None):
     if service_id:
         params.append(("service_ids[]", service_id))
     try:
-        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
         if resp is not None and resp.status_code == 200:
             data = resp.json()
             return data.get("data", [])
@@ -275,21 +242,7 @@ def get_staff_for_booking(service_id=None, error_flag=None):
 
 
 def get_available_times(service_id, staff_id, date_str, error_flag=None):
-    """
-    Fetch available time slots for a given service, staff, and date.
-    Uses /book_times/{company_id}/{staff_id}/{date} endpoint.
 
-    Args:
-        service_id: YClients service ID.
-        staff_id: YClients staff ID.
-        date_str: date in YYYY-MM-DD format.
-        error_flag: опциональный list; при сбое запроса в него добавляется
-        True, чтобы вызывающий код мог отличить "реально нет слотов" от
-        "не удалось узнать". По умолчанию None — поведение не меняется.
-
-    Returns:
-        List of time strings (e.g. ["10:00", "10:15", ...]).
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
         if error_flag is not None:
@@ -302,7 +255,10 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
         ("service_ids[]", service_id),
     ]
     try:
-        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
         if resp is not None and resp.status_code == 200:
             data = resp.json()
             times_data = data.get("data", [])
@@ -329,24 +285,12 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
         return []
 
 
-def get_available_dates(service_id, staff_id, month=None, year=None,
+def get_available_dates(service_id,
+                        staff_id,
+                        month=None,
+                        year=None,
                         error_flag=None):
-    """
-    Fetch available dates (days with free slots) for a given service and staff.
 
-    Args:
-        service_id: YClients service ID.
-        staff_id: YClients staff ID.
-        month: month number (1-12), defaults to current.
-        year: year, defaults to current.
-        error_flag: опциональный list; при сбое запроса в него добавляется
-        True, чтобы вызывающий код мог отличить "реально нет доступных
-        дат" от "не удалось узнать". По умолчанию None — поведение не
-        меняется.
-
-    Returns:
-        List of date strings (e.g. ["2026-08-01", "2026-08-03", ...]).
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
         if error_flag is not None:
@@ -366,7 +310,10 @@ def get_available_dates(service_id, staff_id, month=None, year=None,
         "date": f"{year:04d}-{month:02d}-01",
     }
     try:
-        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
         if resp is not None and resp.status_code == 200:
             data = resp.json()
             dates_data = data.get("data", [])
@@ -399,10 +346,7 @@ def create_booking(
     comment="",
     client_email="noreply@verbena-studio.ru",
 ):
-    """
-    Create a booking (record) in YClients.
-    Returns dict with keys: success, record_id, hash, error.
-    """
+
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
         return {"success": False, "error": "YClients tokens not configured"}
@@ -431,6 +375,7 @@ def create_booking(
     logger.info(f"YClients create booking payload: {payload}")
 
     try:
+        _rate_limit_wait()
         resp = requests.post(url, headers=_headers(), json=payload, timeout=15)
 
         # ... внутри функции create_booking, блок обработки успеха ...
@@ -490,12 +435,7 @@ def create_booking(
 
 
 def check_connection():
-    """
-    Check if YClients API is reachable with current credentials.
 
-    Returns:
-        dict with keys: connected (bool), company_name (str or None), error (str or None).
-    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         return {
             "connected": False,
@@ -505,6 +445,7 @@ def check_connection():
 
     url = f"{YCLIENTS_API_BASE}/company/{YCLIENTS_COMPANY_ID}"
     try:
+        _rate_limit_wait()
         resp = requests.get(url, headers=_headers(), timeout=15)
         if resp.status_code == 200:
             data = resp.json().get("data", {})
@@ -524,18 +465,14 @@ def check_connection():
 
 
 def get_record_by_hash(record_hash):
-    """
-    Get record details by its public hash.
-    Uses /user/records/{hash} endpoint.
-    """
+
     if not record_hash:
         return None
 
-    # Для этого эндпоинта иногда достаточно только User token,
-    # но лучше использовать стандартные заголовки
     url = f"{YCLIENTS_API_BASE}/user/records/{record_hash}"
 
     try:
+        _rate_limit_wait()
         resp = requests.get(url, headers=_headers(), timeout=10)
         if resp.status_code == 200:
             return resp.json().get("data")

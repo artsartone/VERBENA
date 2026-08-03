@@ -1456,8 +1456,8 @@ _YCACHE_TTL = 300  # 5 минут
 # _calculate_free_slots) — цена в скорости холодного расчёта, но
 # именно холодные расчёты и не должны происходить синхронно на живом
 # запросе пользователя (см. фоновый прогрев кэша ниже).
-_YC_MAX_WORKERS = 4
-_YC_ROUND_DELAY = 0.3  # секунд паузы между раундами запросов
+_YC_MAX_WORKERS = 6
+_YC_ROUND_DELAY = 0.15  # секунд паузы между раундами запросов
 
 
 def _get_key_lock(key):
@@ -1650,7 +1650,7 @@ def _prewarm_free_slots():
             get_cached_dynamic(
                 cache_key,
                 lambda d=date_str, t=target_date: _get_free_slots_safe(d, t),
-                ttl_success=300, ttl_error=20)
+                ttl_success=300, ttl_error=45)
         except Exception as e:
             logger.error(f"Прогрев free-slots для {date_str} не удался: {e}")
         # Пауза между датами — тот же принцип: не бить по YClients
@@ -2393,6 +2393,10 @@ def _calculate_free_slots(target_date):
     # было передавать как error_flag в функции yclients_api и просто
     # append'ить из разных потоков (list.append атомарен под GIL)
 
+    # Тайминг по раундам — чтобы в логах прода было видно, на каком именно
+    # этапе уходит время, а не гадать по общей длительности запроса.
+    _t_start = time.time()
+
     # 1. Получаем все услуги из YClients
     try:
         all_services = yc.get_services(error_flag=errors)
@@ -2437,6 +2441,11 @@ def _calculate_free_slots(target_date):
                         "slots": set()
                     }
                 service_staff_pairs.append((service_id, staff_id))
+
+    logger.info(
+        f"_calculate_free_slots({target_date}): раунд 1 (мастера по "
+        f"услугам, {len(service_ids)} услуг → {len(service_staff_pairs)} "
+        f"пар) занял {time.time() - _t_start:.1f}с")
 
     # Небольшая пауза перед следующим раундом запросов — не бьём по
     # YClients второй пачкой запросов сразу же вслед за первой.
@@ -2535,6 +2544,12 @@ def _calculate_free_slots(target_date):
             f"доступности. Помечаем расчёт как подозрительный.")
         errors.append(True)
 
+    logger.info(
+        f"_calculate_free_slots({target_date}): раунд 2 (доступные даты, "
+        f"{len(service_staff_pairs)} пар → {len(candidate_pairs)} "
+        f"кандидатов на {target_date}) занял "
+        f"{time.time() - _t_start:.1f}с суммарно")
+
     time.sleep(_YC_ROUND_DELAY)
 
     def fetch_times(pair):
@@ -2592,6 +2607,11 @@ def _calculate_free_slots(target_date):
                 "free_slots": [{"time": t} for t in slots]
             })
 
+    logger.info(
+        f"_calculate_free_slots({target_date}): раунд 3 (точные времена, "
+        f"{len(candidate_pairs)} пар) — итого весь расчёт занял "
+        f"{time.time() - _t_start:.1f}с, had_errors={bool(errors)}")
+
     return result, bool(errors)
 
 
@@ -2622,12 +2642,12 @@ def public_free_slots():
     # дней (см. _run_slots_prewarmer) — обычно этот вызов просто читает
     # готовый кэш. Если расчёт всё же подозрительный (см. эвристики и
     # error_flag внутри _calculate_free_slots) — подставляется последний
-    # надёжный результат, а кэш всё равно берёт короткий TTL (20с), чтобы
+    # надёжный результат, а кэш всё равно берёт короткий TTL (45с), чтобы
     # скоро попробовать снова, а не залипнуть на все 5 минут.
     cache_key = f"public_free_slots_{date_str}"
     cached, had_errors = get_cached_dynamic(
         cache_key, lambda: _get_free_slots_safe(date_str, target_date),
-        ttl_success=300, ttl_error=20)
+        ttl_success=300, ttl_error=45)
 
     return jsonify({"staff": cached, "date": target_date.isoformat()})
 
