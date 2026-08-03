@@ -35,7 +35,7 @@ YCLIENTS_TOKEN = YCLIENTS_PARTNER_TOKEN
 # Это единственная точка, через которую идут вообще все запросы модуля
 # (_request_with_retry), поэтому лимит соблюдается глобально для всего
 # процесса, а не только внутри одной функции.
-_RATE_LIMIT_PER_SEC = 4  # запас под официальный лимит YClients в 5/сек
+_RATE_LIMIT_PER_SEC = 3  # было 4 — судя по логам, и этого оказалось мало
 _rate_lock = threading.Lock()
 _rate_window = collections.deque()  # timestamps последних запросов
 
@@ -58,7 +58,7 @@ def _rate_limit_wait():
 
 def _request_with_retry(method,
                         url,
-                        retries=1,
+                        retries=2,
                         backoff=0.4,
                         timeout=15,
                         **kwargs):
@@ -204,6 +204,12 @@ def get_staff():
 
 
 def get_staff_for_booking(service_id=None, error_flag=None):
+    """service_id может быть одним id (как раньше) ИЛИ списком/кортежем/
+    множеством id — тогда все они уйдут ОДНИМ запросом как несколько
+    service_ids[] в query (YClients принимает этот параметр массивом).
+    Раньше коду, которому нужны мастера сразу по НЕСКОЛЬКИМ услугам,
+    приходилось делать отдельный запрос на каждую — это и было основным
+    источником лишних запросов в _calculate_free_slots (см. app.py)."""
 
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
@@ -215,7 +221,9 @@ def get_staff_for_booking(service_id=None, error_flag=None):
     url = f"{YCLIENTS_API_BASE}/book_staff/{YCLIENTS_COMPANY_ID}"
     params = []
     if service_id:
-        params.append(("service_ids[]", service_id))
+        ids = (service_id if isinstance(service_id, (list, tuple, set))
+               else [service_id])
+        params.extend(("service_ids[]", sid) for sid in ids)
     try:
         resp = _request_with_retry("get",
                                    url,
@@ -238,10 +246,77 @@ def get_staff_for_booking(service_id=None, error_flag=None):
         return []
 
 
+# ─── Staff Timetable (расписание мастера на дату) ───
+
+
+def get_staff_timetable(staff_id, date_str, error_flag=None):
+    """GET /timetable/seances/{company_id}/{staff_id}/{date}.
+
+    В отличие от book_dates/book_times, эта ручка требует ТОЛЬКО staff_id
+    и дату — без service_id. Она относится к "журнальной"/CRM-группе
+    API (тот же расчёт прав, что и просмотр журнала записи в кабинете),
+    а не к виджету онлайн-записи, поэтому не участвует в комбинаторике
+    "услуга × мастер", из-за которой раньше _calculate_free_slots делал
+    десятки запросов на одну дату.
+
+    Возвращает список вида [{"time": "10:00", "is_free": true}, ...] —
+    сырую занятость мастера по сетке (обычно 5 минут), БЕЗ учёта
+    длительности конкретной услуги. Для страницы "какие вообще есть
+    свободные окна" (без выбора услуги) этого достаточно — ровно так
+    сейчас используется /api/public/free-slots. Если где-то потребуется
+    проверить, влезает ли услуга нужной длины, слоты нужно предварительно
+    схлопнуть в непрерывные интервалы (см. _calculate_free_slots).
+    """
+    if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
+        logger.error("Tokens not configured")
+        if error_flag is not None:
+            error_flag.append(True)
+        return []
+
+    url = f"{YCLIENTS_API_BASE}/timetable/seances/{YCLIENTS_COMPANY_ID}/{staff_id}/{date_str}"
+    try:
+        resp = _request_with_retry("get", url, headers=_headers())
+        if resp is not None and resp.status_code == 200:
+            data = resp.json()
+            return data.get("data", [])
+        else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
+            if status == 404:
+                # Мастер без графика на эту дату / нет журнала — не
+                # инфраструктурная ошибка, не поднимаем error_flag.
+                logger.info(
+                    f"YClients timetable: мастер {staff_id} без графика "
+                    f"на {date_str} — HTTP 404")
+                return []
+            logger.error(
+                f"YClients timetable/seances error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
+            return []
+    except Exception as e:
+        logger.error(f"YClients timetable/seances exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
+        return []
+
+
 # ─── Available Times ───
 
 
 def get_available_times(service_id, staff_id, date_str, error_flag=None):
+    """service_id: id услуги, список id услуг, или None/пусто.
+
+    Если service_id не задан — book_times вернёт времена БЕЗ фильтра по
+    конкретной услуге, но с той же квантовкой (шагом записи), что и с
+    услугой: это ровно те тайминги, которые реально можно указать в
+    datetime при создании записи, а не сырая 5-минутная занятость
+    сотрудника. Именно поэтому для публичного превью свободных окон
+    (без выбора услуги) нужно звать эту ручку, а не собирать времена
+    из timetable/seances — там 5-минутные тики не гарантированно
+    являются валидными стартами записи (см. настройку "доступное время
+    для онлайн-записи" в YClients — время может быть ограничено шагом,
+    например только 9:00, 10:00, 11:00... для часовой услуги)."""
 
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
@@ -251,9 +326,11 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
 
     url = (f"{YCLIENTS_API_BASE}/book_times/{YCLIENTS_COMPANY_ID}"
            f"/{staff_id}/{date_str}")
-    params = [
-        ("service_ids[]", service_id),
-    ]
+    params = []
+    if service_id:
+        ids = (service_id if isinstance(service_id, (list, tuple, set))
+               else [service_id])
+        params.extend(("service_ids[]", sid) for sid in ids)
     try:
         resp = _request_with_retry("get",
                                    url,
@@ -273,6 +350,16 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
         else:
             status = resp.status_code if resp is not None else "no response"
             body = resp.text[:200] if resp is not None else ""
+            if status == 404:
+                # Легитимный ответ YClients: этот мастер не бронируется на
+                # эту услугу через онлайн-запись — не инфраструктурная
+                # ошибка. Не поднимаем error_flag из-за неё, иначе она
+                # ложно портит эвристику had_errors и заставляет кэш дня
+                # пересчитываться заново без реальной причины.
+                logger.info(
+                    f"YClients available times: мастер {staff_id} недоступен "
+                    f"для услуги {service_id} ({date_str}) — HTTP 404")
+                return []
             logger.error(
                 f"YClients available times error: HTTP {status} - {body}")
             if error_flag is not None:
@@ -321,6 +408,11 @@ def get_available_dates(service_id,
         else:
             status = resp.status_code if resp is not None else "no response"
             body = resp.text[:200] if resp is not None else ""
+            if status == 404:
+                logger.info(
+                    f"YClients available dates: мастер {staff_id} недоступен "
+                    f"для услуги {service_id} — HTTP 404")
+                return []
             logger.error(
                 f"YClients available dates error: HTTP {status} - {body}")
             if error_flag is not None:
