@@ -9,10 +9,10 @@
 """
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 
-MAX_INLINE_ROWS = 6   # лимит VK для inline-клавиатур
-TIMES_PER_PAGE = 6    # слотов времени на одну страницу
-DATES_PER_PAGE = 6    # дат на одну страницу
-STAFF_PER_PAGE = 4    # мастеров на одну страницу
+MAX_INLINE_ROWS = 6  # лимит VK для inline-клавиатур
+TIMES_PER_PAGE = 6  # слотов времени на одну страницу
+DATES_PER_PAGE = 6  # дат на одну страницу
+STAFF_PER_PAGE = 4  # мастеров на одну страницу
 SERVICES_PER_PAGE = 4  # услуг на одну страницу
 
 
@@ -42,13 +42,17 @@ def get_main_menu_keyboard() -> Keyboard:
     """
     keyboard = Keyboard(inline=True)
 
-    keyboard.add(Text("📅 Записаться", payload={"cmd": "book"}), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("📅 Записаться", payload={"cmd": "book"}),
+                 KeyboardButtonColor.PRIMARY)
     keyboard.row()
-    keyboard.add(Text("💅 Услуги и цены", payload={"cmd": "services"}), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("💅 Услуги и цены", payload={"cmd": "services"}),
+                 KeyboardButtonColor.PRIMARY)
     keyboard.row()
-    keyboard.add(Text("📍 Контакты", payload={"cmd": "contacts"}), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("📍 Контакты", payload={"cmd": "contacts"}),
+                 KeyboardButtonColor.PRIMARY)
     keyboard.row()
-    keyboard.add(Text("💼 Хочу работать", payload={"cmd": "career"}), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("💼 Хочу работать", payload={"cmd": "career"}),
+                 KeyboardButtonColor.PRIMARY)
 
     return keyboard
 
@@ -65,7 +69,10 @@ def get_categories_keyboard(categories: list) -> Keyboard:
     # Оставляем максимум 5 категорий (5 рядов + ряд «Назад» = 6)
     for cat_id, title in categories[:5]:
         keyboard.add(
-            Text(title, payload={"cmd": "category", "cat_id": str(cat_id)}),
+            Text(title, payload={
+                "cmd": "category",
+                "cat_id": str(cat_id)
+            }),
             KeyboardButtonColor.PRIMARY,
         )
         keyboard.row()
@@ -90,17 +97,27 @@ def get_services_keyboard(services: list, page: int = 0) -> Keyboard:
     «◀️ Назад» / «Вперёд ▶️» для перелистывания, а внизу —
     «◀️ Назад к категориям».
     """
-    total_pages = max(1, (len(services) + SERVICES_PER_PAGE - 1) // SERVICES_PER_PAGE)
+    total_pages = max(1, (len(services) + SERVICES_PER_PAGE - 1) //
+                      SERVICES_PER_PAGE)
     page = max(0, min(page, total_pages - 1))
     start = page * SERVICES_PER_PAGE
     page_services = services[start:start + SERVICES_PER_PAGE]
 
     keyboard = Keyboard(inline=True)
 
+    MAX_LABEL = 40
+
     for svc_id, name, price in page_services:
         label = f"{name} — {price}" if price else name
+
+        if len(label) > MAX_LABEL:
+            label = label[:MAX_LABEL - 3] + "..."
+
         keyboard.add(
-            Text(label, payload={"cmd": "service", "svc_id": str(svc_id)}),
+            Text(label, payload={
+                "cmd": "service",
+                "svc_id": str(svc_id)
+            }),
             KeyboardButtonColor.PRIMARY,
         )
         keyboard.row()
@@ -110,12 +127,20 @@ def get_services_keyboard(services: list, page: int = 0) -> Keyboard:
     if has_prev or has_next:
         if has_prev:
             keyboard.add(
-                Text("◀️ Назад", payload={"cmd": "services_page", "page": page - 1}),
+                Text("◀️ Назад",
+                     payload={
+                         "cmd": "services_page",
+                         "page": page - 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         if has_next:
             keyboard.add(
-                Text("Вперёд ▶️", payload={"cmd": "services_page", "page": page + 1}),
+                Text("Вперёд ▶️",
+                     payload={
+                         "cmd": "services_page",
+                         "page": page + 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         keyboard.row()
@@ -152,7 +177,10 @@ def get_staff_keyboard(staff: list, page: int = 0) -> Keyboard:
         spec = s.get("specialization", "")
         label = f"{name}" + (f" ({spec})" if spec else "")
         keyboard.add(
-            Text(label, payload={"cmd": "staff", "staff_id": str(s["id"])}),
+            Text(label, payload={
+                "cmd": "staff",
+                "staff_id": str(s["id"])
+            }),
             KeyboardButtonColor.PRIMARY,
         )
         keyboard.row()
@@ -162,12 +190,20 @@ def get_staff_keyboard(staff: list, page: int = 0) -> Keyboard:
     if has_prev or has_next:
         if has_prev:
             keyboard.add(
-                Text("◀️ Назад", payload={"cmd": "staff_page", "page": page - 1}),
+                Text("◀️ Назад",
+                     payload={
+                         "cmd": "staff_page",
+                         "page": page - 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         if has_next:
             keyboard.add(
-                Text("Вперёд ▶️", payload={"cmd": "staff_page", "page": page + 1}),
+                Text("Вперёд ▶️",
+                     payload={
+                         "cmd": "staff_page",
+                         "page": page + 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         keyboard.row()
@@ -208,7 +244,8 @@ def get_dates_keyboard(dates: list, page: int = 0) -> Keyboard:
             from datetime import datetime
             try:
                 d = datetime.strptime(date_str, "%d.%m.%Y")
-                day_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][d.weekday()]
+                day_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб",
+                            "Вс"][d.weekday()]
                 btn_text = f"{day}.{month} ({day_name})"
             except Exception:
                 btn_text = f"{day}.{month}"
@@ -216,7 +253,10 @@ def get_dates_keyboard(dates: list, page: int = 0) -> Keyboard:
             btn_text = date_str
 
         keyboard.add(
-            Text(btn_text, payload={"cmd": "date", "date": date_str}),
+            Text(btn_text, payload={
+                "cmd": "date",
+                "date": date_str
+            }),
             KeyboardButtonColor.PRIMARY,
         )
 
@@ -232,12 +272,20 @@ def get_dates_keyboard(dates: list, page: int = 0) -> Keyboard:
     if has_prev or has_next:
         if has_prev:
             keyboard.add(
-                Text("◀️ Назад", payload={"cmd": "dates_page", "page": page - 1}),
+                Text("◀️ Назад",
+                     payload={
+                         "cmd": "dates_page",
+                         "page": page - 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         if has_next:
             keyboard.add(
-                Text("Вперёд ▶️", payload={"cmd": "dates_page", "page": page + 1}),
+                Text("Вперёд ▶️",
+                     payload={
+                         "cmd": "dates_page",
+                         "page": page + 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         keyboard.row()
@@ -272,7 +320,10 @@ def get_times_keyboard(times: list, page: int = 0) -> Keyboard:
     row_count = 0
     for time_slot in page_times:
         keyboard.add(
-            Text(time_slot, payload={"cmd": "time", "time": time_slot}),
+            Text(time_slot, payload={
+                "cmd": "time",
+                "time": time_slot
+            }),
             KeyboardButtonColor.PRIMARY,
         )
         row_count += 1
@@ -287,12 +338,20 @@ def get_times_keyboard(times: list, page: int = 0) -> Keyboard:
     if has_prev or has_next:
         if has_prev:
             keyboard.add(
-                Text("◀️ Назад", payload={"cmd": "times_page", "page": page - 1}),
+                Text("◀️ Назад",
+                     payload={
+                         "cmd": "times_page",
+                         "page": page - 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         if has_next:
             keyboard.add(
-                Text("Вперёд ▶️", payload={"cmd": "times_page", "page": page + 1}),
+                Text("Вперёд ▶️",
+                     payload={
+                         "cmd": "times_page",
+                         "page": page + 1
+                     }),
                 KeyboardButtonColor.SECONDARY,
             )
         keyboard.row()
@@ -318,9 +377,11 @@ def get_skip_comment_keyboard() -> Keyboard:
 def get_confirm_keyboard() -> Keyboard:
     """Клавиатура подтверждения/отмены записи."""
     keyboard = Keyboard(inline=True)
-    keyboard.add(Text("✅ Подтвердить", payload={"cmd": "confirm_yes"}), KeyboardButtonColor.POSITIVE)
+    keyboard.add(Text("✅ Подтвердить", payload={"cmd": "confirm_yes"}),
+                 KeyboardButtonColor.POSITIVE)
     keyboard.row()
-    keyboard.add(Text("❌ Отменить", payload={"cmd": "confirm_no"}), KeyboardButtonColor.NEGATIVE)
+    keyboard.add(Text("❌ Отменить", payload={"cmd": "confirm_no"}),
+                 KeyboardButtonColor.NEGATIVE)
     return keyboard
 
 
