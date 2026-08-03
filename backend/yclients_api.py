@@ -179,6 +179,54 @@ def get_services(category_id=None, error_flag=None):
         return []
 
 
+def get_bookable_services(error_flag=None):
+    """GET /book_services/{company_id} — каталог услуг ГЛАЗАМИ виджета
+    онлайн-записи, а не CRM (в отличие от get_services(), которая ходит
+    в /company/{id}/services/ и отдаёт ВСЕ услуги каталога, включая
+    архивные/скрытые/не включённые в онлайн-запись).
+
+    Нужна там, где id услуг потом передаются в другую виджетную ручку —
+    например, book_staff (см. get_staff_for_booking) — которая валидирует
+    весь переданный service_ids[] и при наличии среди них хотя бы одного
+    id, не годного для онлайн-записи, отвечает 422 на ВЕСЬ запрос целиком
+    (без указания, какой именно id был плохим). get_services() в паре с
+    book_staff регулярно ловит это на аккаунтах, где каталог шире
+    online-bookable подмножества (см. историю бага: 28 услуг в каталоге,
+    book_staff → HTTP 422 Unprocessable Content)."""
+
+    if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
+        logger.error(
+            "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
+        if error_flag is not None:
+            error_flag.append(True)
+        return []
+
+    url = f"{YCLIENTS_API_BASE}/book_services/{YCLIENTS_COMPANY_ID}"
+    try:
+        resp = _request_with_retry("get", url, headers=_headers())
+        if resp is not None and resp.status_code == 200:
+            data = resp.json().get("data", [])
+            # На некоторых версиях API это плоский список услуг, на других —
+            # объект вида {"services": [...], "categories": [...]}. Приводим
+            # к списку в обоих случаях, ничего не предполагая заранее.
+            if isinstance(data, dict):
+                data = data.get("services", [])
+            return data or []
+        else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
+            logger.error(
+                f"YClients book_services error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
+            return []
+    except Exception as e:
+        logger.error(f"YClients book_services exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
+        return []
+
+
 def get_all_staff_from_services():
 
     services = get_services()

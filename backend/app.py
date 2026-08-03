@@ -2472,23 +2472,31 @@ def _calculate_free_slots(target_date):
 
     _t_start = time.time()
 
-    # 1. Получаем все услуги из YClients.
-    # Каталог услуг меняется не поминутно — кэшируем на 10 минут под общим
-    # ключом 'services_list'. get_cached_dynamic (не обычный get_cached!) —
-    # чтобы неудачный запрос не залип в кэше на все 10 минут, а
-    # закэшировался лишь на 45 секунд.
+    # 1. Получаем услуги, доступные для ОНЛАЙН-ЗАПИСИ (book_services), а
+    # НЕ полный CRM-каталог (get_services/'services_list' — тот используется
+    # для публичного отображения услуг и здесь не годится). Раньше здесь
+    # был get_services(), и на аккаунтах, где каталог шире online-bookable
+    # подмножества (архивные/скрытые/не включённые в онлайн-запись услуги),
+    # это приводило к HTTP 422 "Unprocessable Content" от book_staff ниже:
+    # он валидирует ВЕСЬ переданный service_ids[] и отклоняет целиком запрос
+    # при наличии среди них хотя бы одного непригодного id, без указания,
+    # какой именно — итог выглядел как "0 мастеров" при полностью рабочих
+    # услугах и токенах (см. историю бага, 28 услуг в каталоге → 422).
+    # Кэшируем отдельно от 'services_list' на 10 минут тем же принципом
+    # get_cached_dynamic — неудачный запрос кэшируется лишь на 45 секунд.
     def _fetch_services():
         local_err = []
-        data = yc.get_services(error_flag=local_err)
+        data = yc.get_bookable_services(error_flag=local_err)
         return data, bool(local_err)
 
     try:
         all_services, services_had_err = get_cached_dynamic(
-            'services_list', _fetch_services, ttl_success=600, ttl_error=45)
+            'book_services_list', _fetch_services, ttl_success=600,
+            ttl_error=45)
         if services_had_err:
             errors.append(True)
     except Exception as e:
-        logger.error(f"Failed to get services from YClients: {e}")
+        logger.error(f"Failed to get bookable services from YClients: {e}")
         return [], True
 
     if not all_services:
