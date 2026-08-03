@@ -1506,6 +1506,64 @@ def clear_cache(pattern=None):
             _ycache.clear()
 
 
+def get_cached_dynamic(key, fetch_func, ttl_success=None, ttl_error=20):
+    """Как get_cached, но для случаев, когда сам расчёт может частично
+    провалиться (например, YClients прижал rate-лимитом часть параллельных
+    запросов при "холодном" кэше).
+
+    fetch_func должна возвращать (data, had_errors). Если had_errors=True,
+    результат кэшируется всего на ttl_error секунд, а не на полный TTL —
+    иначе неудачный (например, ложно-пустой) ответ "залипал" бы в кэше
+    на весь обычный срок, и все посетители до его истечения видели бы
+    неверные данные, хотя на самом деле проблема была временной.
+
+    Возвращает (data, had_errors) — в отличие от get_cached, всегда парой,
+    чтобы вызывающий код мог распространить признак ошибки выше (например,
+    в свой собственный errors-список), а не заглядывать во внутренности
+    кэша. had_errors=True приходит и из свежего вычисления, и из уже
+    закэшированной "ошибочной" записи (пока не истёк её короткий TTL).
+
+    Хранит собственный TTL и признак ошибки прямо в записи кэша, поэтому
+    использует свою пару ключей — с обычным get_cached их путать не нужно.
+    """
+    if ttl_success is None:
+        ttl_success = _YCACHE_TTL
+
+    def _read_if_fresh():
+        with _ycache_lock:
+            if key in _ycache:
+                entry = _ycache[key]
+                entry_ttl = entry.get('ttl', ttl_success)
+                if datetime.now().timestamp() - entry['timestamp'] < entry_ttl:
+                    return entry['data'], entry.get('had_errors', False), True
+        return None, False, False
+
+    data, had_errors, found = _read_if_fresh()
+    if found:
+        return data, had_errors
+
+    key_lock = _get_key_lock(key)
+    with key_lock:
+        data, had_errors, found = _read_if_fresh()
+        if found:
+            return data, had_errors
+
+        result, had_errors = fetch_func()
+        ttl = ttl_error if had_errors else ttl_success
+        if had_errors:
+            logger.warning(
+                f"get_cached_dynamic: расчёт для '{key}' прошёл с ошибками, "
+                f"кэшируем результат всего на {ttl}с вместо {ttl_success}с")
+        with _ycache_lock:
+            _ycache[key] = {
+                'data': result,
+                'timestamp': datetime.now().timestamp(),
+                'ttl': ttl,
+                'had_errors': had_errors,
+            }
+        return result, had_errors
+
+
 # ──────────── СПИСОК УСЛУГ ────────────
 @app.route("/api/services", methods=["GET"])
 @login_required
@@ -2206,16 +2264,26 @@ def _calculate_free_slots(target_date):
     """
     Рассчитывает свободные слоты для всех мастеров на указанную дату.
     Использует РЕАЛЬНЫЕ данные из YClients API (как форма записи).
+
+    Возвращает (result, had_errors). had_errors=True означает, что хотя
+    бы один из запросов к YClients (услуги/мастера/доступные даты/точные
+    времена) не удался даже после ретраев — то есть пустой или неполный
+    result может не отражать реальную картину, и кэшировать его как
+    "точно всё занято" на обычный TTL не стоит (см. get_cached_dynamic).
     """
+    errors = []  # общий флаг ошибок на весь расчёт; list — чтобы можно
+    # было передавать как error_flag в функции yclients_api и просто
+    # append'ить из разных потоков (list.append атомарен под GIL)
+
     # 1. Получаем все услуги из YClients
     try:
-        all_services = yc.get_services()
+        all_services = yc.get_services(error_flag=errors)
     except Exception as e:
         logger.error(f"Failed to get services from YClients: {e}")
-        return []
+        return [], True
 
     if not all_services:
-        return []
+        return [], bool(errors)
 
     # 2. Собираем всех мастеров и их слоты.
     # Раньше это были ПОСЛЕДОВАТЕЛЬНЫЕ запросы к YClients (по услуге,
@@ -2228,10 +2296,12 @@ def _calculate_free_slots(target_date):
 
     def fetch_staff_for_service(service_id):
         try:
-            return service_id, yc.get_staff_for_booking(service_id=service_id)
+            return service_id, yc.get_staff_for_booking(
+                service_id=service_id, error_flag=errors)
         except Exception as e:
             logger.warning(
                 f"Failed to get staff for service {service_id}: {e}")
+            errors.append(True)
             return service_id, []
 
     # 2a. Параллельно получаем список мастеров для каждой услуги
@@ -2277,14 +2347,27 @@ def _calculate_free_slots(target_date):
     def _get_available_dates_cached(service_id, staff_id):
         cache_key = (f"avail_dates_{service_id}_{staff_id}_"
                       f"{target_date.year}-{target_date.month:02d}")
-        # Список доступных дней в месяце меняется не так быстро, как
-        # свободные минуты внутри дня — держим кэш дольше основного (30 мин).
-        return get_cached(
-            cache_key,
-            lambda: yc.get_available_dates(
+
+        def _fetch():
+            local_err = []
+            data = yc.get_available_dates(
                 service_id, staff_id,
-                month=target_date.month, year=target_date.year),
-            ttl=1800)
+                month=target_date.month, year=target_date.year,
+                error_flag=local_err)
+            return data, bool(local_err)
+
+        # Список доступных дней в месяце меняется не так быстро, как
+        # свободные минуты внутри дня — держим кэш дольше основного (30 мин
+        # при успехе). Но если запрос не удался, кэшируем всего на минуту:
+        # раньше сбой здесь "залипал" в кэше на все 30 минут, что даже
+        # заметнее бьёт по "сегодня", чем 5-минутный кэш самого /free-slots.
+        result, had_err = get_cached_dynamic(cache_key, _fetch,
+                                             ttl_success=1800, ttl_error=60)
+        if had_err:
+            # Сбой на этом шаге делает недостоверным и итоговый результат
+            # всего дня — поднимаем общий флаг расчёта free-slots.
+            errors.append(True)
+        return result
 
     def pair_has_target_date(pair):
         service_id, staff_id = pair
@@ -2318,12 +2401,14 @@ def _calculate_free_slots(target_date):
         try:
             # Та же логика, что и в форме записи!
             slots = yc.get_available_times(service_id, staff_id,
-                                           target_date.isoformat())
+                                           target_date.isoformat(),
+                                           error_flag=errors)
             return staff_id, slots
         except Exception as e:
             logger.warning(
                 f"Failed to get slots for staff {staff_id}, service {service_id}: {e}"
             )
+            errors.append(True)
             return staff_id, None
 
     # 2c. Параллельно получаем точные слоты только для пар, у которых
@@ -2353,7 +2438,7 @@ def _calculate_free_slots(target_date):
                 "free_slots": [{"time": t} for t in slots]
             })
 
-    return result
+    return result, bool(errors)
 
 
 @app.route("/schedule")
@@ -2378,11 +2463,16 @@ def public_free_slots():
     except ValueError:
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
-    # Кэшируем на 5 минут для снижения нагрузки на YClients API
+    # Кэшируем на 5 минут для снижения нагрузки на YClients API.
+    # Если расчёт прошёл с ошибками (сбои запросов к YClients — типично
+    # при "холодном" кэше, когда сразу летит пачка параллельных запросов),
+    # результат может ложно показывать "всё занято" — кэшируем такой
+    # результат всего на 20 секунд, чтобы он быстро самоисправился,
+    # а не "залипал" на все 5 минут для всех посетителей.
     cache_key = f"public_free_slots_{date_str}"
-    cached = get_cached(cache_key,
-                        lambda: _calculate_free_slots(target_date),
-                        ttl=300)
+    cached, had_errors = get_cached_dynamic(
+        cache_key, lambda: _calculate_free_slots(target_date),
+        ttl_success=300, ttl_error=20)
 
     return jsonify({"staff": cached, "date": target_date.isoformat()})
 

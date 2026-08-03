@@ -14,6 +14,7 @@ Requires environment variables:
 """
 
 import os
+import time
 import logging
 from datetime import datetime
 
@@ -33,6 +34,57 @@ YCLIENTS_COMPANY_ID = os.environ.get("YCLIENTS_COMPANY_ID", "2101920")
 YCLIENTS_TOKEN = YCLIENTS_PARTNER_TOKEN
 
 
+def _request_with_retry(method, url, retries=2, backoff=0.4, timeout=15,
+                        **kwargs):
+    """Выполняет HTTP-запрос с повторными попытками при ВРЕМЕННЫХ сбоях:
+    таймауты, обрывы соединения, а также HTTP 429 (rate limit) и 5xx от
+    самого YClients. Именно такие сбои и вызывали ситуацию, когда при
+    "холодном" расчёте (пустой кэш) параллельная пачка из 10+ запросов
+    к YClients частично проваливалась, а пустой результат затем
+    кэшировался как будто это реальные данные.
+
+    НЕ повторяет обычные 4xx (кроме 429) — там повтор точно не поможет,
+    это ошибка запроса/логики, а не временный сбой сети.
+
+    Возвращает Response (последний полученный, даже если статус
+    ошибочный — пусть вызывающий код сам решает, как логировать) или
+    None, если не удалось даже установить соединение ни разу.
+    """
+    last_resp = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.request(method, url, timeout=timeout, **kwargs)
+        except (requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError) as e:
+            last_resp = None
+            if attempt < retries:
+                logger.warning(
+                    f"YClients {method.upper()} {url} — попытка {attempt + 1} "
+                    f"не удалась ({e}), повтор через {backoff * (attempt + 1)}с..."
+                )
+                time.sleep(backoff * (attempt + 1))
+                continue
+            logger.error(
+                f"YClients {method.upper()} {url} — все попытки истощены: {e}"
+            )
+            return None
+
+        if resp.status_code == 429 or resp.status_code >= 500:
+            last_resp = resp
+            if attempt < retries:
+                logger.warning(
+                    f"YClients {method.upper()} {url} — HTTP {resp.status_code}, "
+                    f"попытка {attempt + 1}, повтор через {backoff * (attempt + 1)}с..."
+                )
+                time.sleep(backoff * (attempt + 1))
+                continue
+            return resp
+
+        return resp
+
+    return last_resp
+
+
 def _headers():
     """
     YClients v1 API requires:
@@ -50,38 +102,50 @@ def _headers():
 # ─── Service Categories ───
 
 
-def get_service_categories():
+def get_service_categories(error_flag=None):
     """
     Fetch all service categories from YClients.
     Uses /service_categories/ endpoint (not /categories).
+
+    Args:
+        error_flag: опциональный list; при сбое запроса в него добавляется
+        True, чтобы вызывающий код мог отличить "реально пусто" от
+        "не удалось узнать". По умолчанию None — поведение не меняется.
 
     Returns list of dicts with keys: id, title, category_id, etc.
     """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
     url = f"{YCLIENTS_API_BASE}/company/{YCLIENTS_COMPANY_ID}/service_categories/"
     try:
-        resp = requests.get(url, headers=_headers(), timeout=15)
-        if resp.status_code == 200:
+        resp = _request_with_retry("get", url, headers=_headers())
+        if resp is not None and resp.status_code == 200:
             data = resp.json()
             return data.get("data", [])
         else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
             logger.error(
-                f"YClients service_categories error: HTTP {resp.status_code} - {resp.text[:200]}"
-            )
+                f"YClients service_categories error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients service_categories exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
 
 # ─── Services ───
 
 
-def get_services(category_id=None):
+def get_services(category_id=None, error_flag=None):
     """
     Fetch services from YClients.
     
@@ -89,6 +153,9 @@ def get_services(category_id=None):
 
     Args:
         category_id: optional category ID to filter by.
+        error_flag: опциональный list; при сбое запроса в него добавляется
+        True, чтобы вызывающий код мог отличить "реально пусто" от
+        "не удалось узнать". По умолчанию None — поведение не меняется.
 
     Returns list of service dicts with keys: id, title, category_id, price_min,
     price_max, duration, staff (list), etc.
@@ -96,6 +163,8 @@ def get_services(category_id=None):
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
     url = f"{YCLIENTS_API_BASE}/company/{YCLIENTS_COMPANY_ID}/services/"
@@ -103,17 +172,21 @@ def get_services(category_id=None):
     if category_id:
         params["category_id"] = category_id
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=15)
-        if resp.status_code == 200:
+        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        if resp is not None and resp.status_code == 200:
             data = resp.json()
             return data.get("data", [])
         else:
-            logger.error(
-                f"YClients services error: HTTP {resp.status_code} - {resp.text[:200]}"
-            )
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
+            logger.error(f"YClients services error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients services exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
 
@@ -149,7 +222,7 @@ def get_staff():
     return get_all_staff_from_services()
 
 
-def get_staff_for_booking(service_id=None):
+def get_staff_for_booking(service_id=None, error_flag=None):
     """
     Fetch staff available for booking, optionally filtered by service.
 
@@ -161,6 +234,9 @@ def get_staff_for_booking(service_id=None):
     Args:
         service_id: optional YClients service ID to filter staff by. If omitted,
         returns all staff bookable online.
+        error_flag: опциональный list; при сбое запроса в него добавляется
+        True, чтобы вызывающий код мог отличить "реально пусто" от
+        "не удалось узнать". По умолчанию None — поведение не меняется.
 
     Returns:
         List of staff dicts (id, name, specialization, avatar, etc.).
@@ -168,6 +244,8 @@ def get_staff_for_booking(service_id=None):
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
             "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
     url = f"{YCLIENTS_API_BASE}/book_staff/{YCLIENTS_COMPANY_ID}"
@@ -175,24 +253,28 @@ def get_staff_for_booking(service_id=None):
     if service_id:
         params.append(("service_ids[]", service_id))
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=15)
-        if resp.status_code == 200:
+        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        if resp is not None and resp.status_code == 200:
             data = resp.json()
             return data.get("data", [])
         else:
-            logger.error(
-                f"YClients book_staff error: HTTP {resp.status_code} - {resp.text[:200]}"
-            )
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
+            logger.error(f"YClients book_staff error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients book_staff exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
 
 # ─── Available Times ───
 
 
-def get_available_times(service_id, staff_id, date_str):
+def get_available_times(service_id, staff_id, date_str, error_flag=None):
     """
     Fetch available time slots for a given service, staff, and date.
     Uses /book_times/{company_id}/{staff_id}/{date} endpoint.
@@ -201,12 +283,17 @@ def get_available_times(service_id, staff_id, date_str):
         service_id: YClients service ID.
         staff_id: YClients staff ID.
         date_str: date in YYYY-MM-DD format.
+        error_flag: опциональный list; при сбое запроса в него добавляется
+        True, чтобы вызывающий код мог отличить "реально нет слотов" от
+        "не удалось узнать". По умолчанию None — поведение не меняется.
 
     Returns:
         List of time strings (e.g. ["10:00", "10:15", ...]).
     """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
     url = (f"{YCLIENTS_API_BASE}/book_times/{YCLIENTS_COMPANY_ID}"
@@ -215,8 +302,8 @@ def get_available_times(service_id, staff_id, date_str):
         ("service_ids[]", service_id),
     ]
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=15)
-        if resp.status_code == 200:
+        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        if resp is not None and resp.status_code == 200:
             data = resp.json()
             times_data = data.get("data", [])
             # /book_times/ returns [{time: "10:00", ...}, ...]
@@ -228,16 +315,22 @@ def get_available_times(service_id, staff_id, date_str):
                 return times_data["times"]
             return []
         else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
             logger.error(
-                f"YClients available times error: HTTP {resp.status_code} - {resp.text[:200]}"
-            )
+                f"YClients available times error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients available times exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
 
-def get_available_dates(service_id, staff_id, month=None, year=None):
+def get_available_dates(service_id, staff_id, month=None, year=None,
+                        error_flag=None):
     """
     Fetch available dates (days with free slots) for a given service and staff.
 
@@ -246,12 +339,18 @@ def get_available_dates(service_id, staff_id, month=None, year=None):
         staff_id: YClients staff ID.
         month: month number (1-12), defaults to current.
         year: year, defaults to current.
+        error_flag: опциональный list; при сбое запроса в него добавляется
+        True, чтобы вызывающий код мог отличить "реально нет доступных
+        дат" от "не удалось узнать". По умолчанию None — поведение не
+        меняется.
 
     Returns:
         List of date strings (e.g. ["2026-08-01", "2026-08-03", ...]).
     """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
     now = datetime.now()
@@ -267,18 +366,23 @@ def get_available_dates(service_id, staff_id, month=None, year=None):
         "date": f"{year:04d}-{month:02d}-01",
     }
     try:
-        resp = requests.get(url, headers=_headers(), params=params, timeout=15)
-        if resp.status_code == 200:
+        resp = _request_with_retry("get", url, headers=_headers(), params=params)
+        if resp is not None and resp.status_code == 200:
             data = resp.json()
             dates_data = data.get("data", [])
             return dates_data
         else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
             logger.error(
-                f"YClients available dates error: HTTP {resp.status_code} - {resp.text[:200]}"
-            )
+                f"YClients available dates error: HTTP {status} - {body}")
+            if error_flag is not None:
+                error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients available dates exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
         return []
 
 
