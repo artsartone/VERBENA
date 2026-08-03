@@ -18,7 +18,6 @@ YCLIENTS_COMPANY_ID = os.environ.get("YCLIENTS_COMPANY_ID")
 # For backward compatibility
 YCLIENTS_TOKEN = YCLIENTS_PARTNER_TOKEN
 
-
 # ─── Общий ограничитель скорости запросов к YClients ───
 # YClients документирует жёсткий лимит: не более 5 запросов в секунду на IP
 # (https://yclientsen.docs.apiary.io/). Раньше параллелизм ограничивался
@@ -230,8 +229,26 @@ def get_bookable_services(error_flag=None):
 def get_all_staff_from_services():
 
     services = get_services()
+    return extract_active_staff(services, active_only=False)
+
+
+def extract_active_staff(services, active_only=True):
+    """Собирает уникальных мастеров из уже полученного списка услуг
+    (см. get_services() — GET /company/{id}/services/, полный CRM-каталог,
+    у каждой услуги есть поле "staff": [...] с мастерами, её оказывающими).
+
+    В отличие от book_staff (см. get_staff_for_booking), здесь НЕТ
+    отдельной валидации service_ids[] и, соответственно, не может быть
+    422 на "плохой" id: это чистый разбор JSON, который уже пришёл одним
+    запросом. Если active_only=True (по умолчанию), учитываются только
+    мастера из услуг с active == 1 — это отражает реальную доступность
+    услуги в самом YClients, а не отдельный флаг online-booking каталога
+    (см. get_bookable_services(), который смотрит на другой, более узкий
+    список)."""
     staff_map = {}
-    for svc in services:
+    for svc in services or []:
+        if active_only and svc.get("active") != 1:
+            continue
         for s in svc.get("staff", []):
             sid = s.get("id")
             if sid and sid not in staff_map:
@@ -251,13 +268,89 @@ def get_staff():
     return get_all_staff_from_services()
 
 
+def _book_staff_request(ids, error_flag=None):
+    """Один сырой запрос GET /book_staff/{company_id}?service_ids[]=...
+    Возвращает (status_code, data_or_None). Не ретраит 422 (это ответ о
+    валидации, не транзиентная ошибка — retries тут не помогут, см.
+    _request_with_retry, который и так ретраит только 429/5xx)."""
+    url = f"{YCLIENTS_API_BASE}/book_staff/{YCLIENTS_COMPANY_ID}"
+    params = [("service_ids[]", sid) for sid in ids]
+    try:
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
+        if resp is not None and resp.status_code == 200:
+            return 200, resp.json().get("data", [])
+        status = resp.status_code if resp is not None else None
+        body = resp.text[:200] if resp is not None else ""
+        logger.warning(
+            f"YClients book_staff HTTP {status} для {len(ids)} service_ids "
+            f"(ids={ids}) - {body}")
+        if error_flag is not None and status != 422:
+            # 422 обрабатывается вызывающей стороной через бисекцию, это
+            # не "настоящая" ошибка запроса — не поднимаем error_flag здесь.
+            error_flag.append(True)
+        return status, None
+    except Exception as e:
+        logger.error(f"YClients book_staff exception: {e}")
+        if error_flag is not None:
+            error_flag.append(True)
+        return None, None
+
+
+def _book_staff_bisect(ids, error_flag=None, _depth=0):
+    """Пытается получить мастеров для ids одним запросом; если YClients
+    отвечает 422 (валидация service_ids[] целиком, без указания, какой
+    именно id виноват — см. get_bookable_services()), делит ids пополам
+    и повторяет рекурсивно, пока не останутся рабочие подмножества или
+    единичные id. Единичный id, который сам по себе даёт 422, логируется
+    как "плохой" и пропускается (не должен ронять весь расчёт мастеров).
+
+    Так решение не завязано на угаданное магическое число (батчи по 5 и
+    т.п.): если реальная причина — конкретный непригодный id, бисекция
+    сразу его находит и выкидывает; если причина — лимит на количество
+    service_ids[] в одном запросе, бисекция сама сходится к рабочему
+    размеру пачки."""
+    if not ids:
+        return []
+
+    status, data = _book_staff_request(ids, error_flag=error_flag)
+    if status == 200:
+        return data or []
+
+    if status != 422:
+        # Не про валидацию (429 после исчерпания ретраев, 5xx, сеть) —
+        # дальше бисектить бессмысленно, ошибка уже учтена в error_flag.
+        return []
+
+    if len(ids) == 1:
+        logger.error(
+            f"YClients book_staff: service_id={ids[0]} сам по себе даёт "
+            f"422 — исключаю его из расчёта мастеров (проверьте, доступна "
+            f"ли эта услуга для онлайн-записи в кабинете YClients).")
+        return []
+
+    mid = len(ids) // 2
+    left = _book_staff_bisect(ids[:mid], error_flag=error_flag, _depth=_depth + 1)
+    right = _book_staff_bisect(ids[mid:], error_flag=error_flag, _depth=_depth + 1)
+
+    merged = {}
+    for staff in left + right:
+        sid = staff.get("id")
+        if sid is not None and sid not in merged:
+            merged[sid] = staff
+    return list(merged.values())
+
+
 def get_staff_for_booking(service_id=None, error_flag=None):
     """service_id может быть одним id (как раньше) ИЛИ списком/кортежем/
-    множеством id — тогда все они уйдут ОДНИМ запросом как несколько
-    service_ids[] в query (YClients принимает этот параметр массивом).
-    Раньше коду, которому нужны мастера сразу по НЕСКОЛЬКИМ услугам,
-    приходилось делать отдельный запрос на каждую — это и было основным
-    источником лишних запросов в _calculate_free_slots (см. app.py)."""
+    множеством id — тогда сначала пробуем ОДИН запрос со всеми
+    service_ids[] сразу (дёшево по rate-limit, см. _calculate_free_slots
+    в app.py). Если YClients отвечает 422 на весь список сразу, разбиваем
+    его бисекцией (см. _book_staff_bisect) вместо того, чтобы резать на
+    заранее угаданные пачки фиксированного размера — так находим ровно
+    те id, что реально ломают запрос, а не гадаем с magic number."""
 
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error(
@@ -266,32 +359,14 @@ def get_staff_for_booking(service_id=None, error_flag=None):
             error_flag.append(True)
         return []
 
-    url = f"{YCLIENTS_API_BASE}/book_staff/{YCLIENTS_COMPANY_ID}"
-    params = []
-    if service_id:
-        ids = (service_id if isinstance(service_id, (list, tuple, set))
+    if not service_id:
+        status, data = _book_staff_request([], error_flag=error_flag)
+        return data or [] if status == 200 else []
+
+    ids = list(service_id if isinstance(service_id, (list, tuple, set))
                else [service_id])
-        params.extend(("service_ids[]", sid) for sid in ids)
-    try:
-        resp = _request_with_retry("get",
-                                   url,
-                                   headers=_headers(),
-                                   params=params)
-        if resp is not None and resp.status_code == 200:
-            data = resp.json()
-            return data.get("data", [])
-        else:
-            status = resp.status_code if resp is not None else "no response"
-            body = resp.text[:200] if resp is not None else ""
-            logger.error(f"YClients book_staff error: HTTP {status} - {body}")
-            if error_flag is not None:
-                error_flag.append(True)
-            return []
-    except Exception as e:
-        logger.error(f"YClients book_staff exception: {e}")
-        if error_flag is not None:
-            error_flag.append(True)
-        return []
+
+    return _book_staff_bisect(ids, error_flag=error_flag)
 
 
 # ─── Staff Timetable (расписание мастера на дату) ───
@@ -376,8 +451,8 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
            f"/{staff_id}/{date_str}")
     params = []
     if service_id:
-        ids = (service_id if isinstance(service_id, (list, tuple, set))
-               else [service_id])
+        ids = (service_id if isinstance(service_id,
+                                        (list, tuple, set)) else [service_id])
         params.extend(("service_ids[]", sid) for sid in ids)
     try:
         resp = _request_with_retry("get",

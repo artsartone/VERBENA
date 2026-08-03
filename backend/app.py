@@ -1510,7 +1510,10 @@ def get_cached(key, fetch_func, ttl=None):
         # Кэш отсутствует или устарел — получаем свежие данные
         data = fetch_func()
         with _ycache_lock:
-            _ycache[key] = {'data': data, 'timestamp': datetime.now().timestamp()}
+            _ycache[key] = {
+                'data': data,
+                'timestamp': datetime.now().timestamp()
+            }
         return data
 
 
@@ -1700,7 +1703,8 @@ def _prewarm_free_slots():
             get_cached_dynamic(
                 cache_key,
                 lambda d=date_str, t=target_date: _get_free_slots_safe(d, t),
-                ttl_success=300, ttl_error=45)
+                ttl_success=300,
+                ttl_error=45)
         except Exception as e:
             logger.error(f"Прогрев free-slots для {date_str} не удался: {e}")
         # Пауза между датами — тот же принцип: не бить по YClients
@@ -2472,59 +2476,59 @@ def _calculate_free_slots(target_date):
 
     _t_start = time.time()
 
-    # 1. Получаем услуги, доступные для ОНЛАЙН-ЗАПИСИ (book_services), а
-    # НЕ полный CRM-каталог (get_services/'services_list' — тот используется
-    # для публичного отображения услуг и здесь не годится). Раньше здесь
-    # был get_services(), и на аккаунтах, где каталог шире online-bookable
-    # подмножества (архивные/скрытые/не включённые в онлайн-запись услуги),
-    # это приводило к HTTP 422 "Unprocessable Content" от book_staff ниже:
-    # он валидирует ВЕСЬ переданный service_ids[] и отклоняет целиком запрос
-    # при наличии среди них хотя бы одного непригодного id, без указания,
-    # какой именно — итог выглядел как "0 мастеров" при полностью рабочих
-    # услугах и токенах (см. историю бага, 28 услуг в каталоге → 422).
-    # Кэшируем отдельно от 'services_list' на 10 минут тем же принципом
-    # get_cached_dynamic — неудачный запрос кэшируется лишь на 45 секунд.
-    def _fetch_services():
+    # 1. Получаем ПОЛНЫЙ каталог услуг (GET /company/{id}/services/, та же
+    # ручка, что и обычный "услуги" в CRM) — а НЕ мастеров через book_staff.
+    # --- НАЧАЛО ИЗМЕНЕНИЯ (v2) ---
+    # Раньше здесь получали bookable-услуги (book_services) и передавали их
+    # id одним запросом в book_staff — это должно было устранить 422 (см.
+    # историю ниже), но на практике book_staff ведёт себя непредсказуемо
+    # даже с отфильтрованными id: на некоторых аккаунтах всё ещё 422 на
+    # весь список сразу, а по отдельному СКРЫТОМУ id — наоборот, тихо
+    # игнорирует фильтр и отдаёт ВСЕХ мастеров компании, как будто
+    # service_ids[] не передан вовсе (т.е. книга book_staff в принципе не
+    # надёжна как источник списка мастеров).
+    #
+    # Вместо этого мастеров берём напрямую из ответа /services/: у каждой
+    # услуги там уже есть встроенный список "staff": [...]. Никакой
+    # отдельной валидации id здесь нет — это просто разбор уже пришедшего
+    # JSON, 422 здесь неоткуда взяться. Учитываем только услуги с
+    # active == 1 (реальный признак доступности услуги в YClients), берём
+    # уникальных мастеров по всем таким услугам (см. yc.extract_active_staff).
+    #
+    # СТАРАЯ ИСТОРИЯ (сохранено для контекста): раньше здесь был
+    # get_services() без bookable-фильтра, и передача его id в book_staff
+    # приводила к HTTP 422 "Unprocessable Content" — он валидирует ВЕСЬ
+    # переданный service_ids[] и отклоняет целиком запрос при наличии
+    # среди них хотя бы одного непригодного id, без указания, какой именно
+    # (см. историю бага, 28 услуг в каталоге → 422). Промежуточный фикс —
+    # переход на book_services (bookable-подмножество) — не полностью решил
+    # проблему (см. выше), поэтому book_staff здесь больше не используется.
+    # --- КОНЕЦ ИЗМЕНЕНИЯ (v2) ---
+    def _fetch_services_for_slots():
         local_err = []
-        data = yc.get_bookable_services(error_flag=local_err)
+        data = yc.get_services(error_flag=local_err)
         return data, bool(local_err)
 
     try:
         all_services, services_had_err = get_cached_dynamic(
-            'book_services_list', _fetch_services, ttl_success=600,
+            'services_list_for_slots',
+            _fetch_services_for_slots,
+            ttl_success=600,
             ttl_error=45)
         if services_had_err:
             errors.append(True)
     except Exception as e:
-        logger.error(f"Failed to get bookable services from YClients: {e}")
+        logger.error(f"Failed to get services from YClients: {e}")
         return [], True
 
     if not all_services:
         return [], bool(errors)
 
-    service_ids = [s.get("id") for s in all_services if s.get("id")]
+    active_staff = yc.extract_active_staff(all_services, active_only=True)
 
-    # 2. Мастера, доступные для онлайн-записи хоть на одну услугу — ОДИН
-    # запрос со всеми service_ids сразу (book_staff принимает service_ids[]
-    # массивом). Результат не зависит от target_date (это просто список
-    # бронируемых мастеров по каталогу), поэтому кэшируем отдельно от
-    # даты на 10 минут — раньше этот раунд запросов повторялся заново на
-    # КАЖДУЮ из дат в _prewarm_free_slots, хотя ответ на самом деле общий.
-    def _fetch_staff():
-        local_err = []
-        data = yc.get_staff_for_booking(service_id=service_ids,
-                                        error_flag=local_err)
-        return data, bool(local_err)
-
-    try:
-        booking_staff, staff_had_err = get_cached_dynamic(
-            'booking_staff_list', _fetch_staff, ttl_success=600, ttl_error=45)
-        if staff_had_err:
-            errors.append(True)
-    except Exception as e:
-        logger.error(f"Failed to get booking staff from YClients: {e}")
-        return [], True
-
+    # 2. Мастера, доступные хоть по одной активной услуге — уже посчитаны
+    # выше из services без единого обращения к book_staff.
+    booking_staff, staff_had_err = active_staff, False
     staff_map = {}  # staff_id -> {"name": ..., "slots": set()}
     for staff in booking_staff or []:
         staff_id = str(staff.get("id", ""))
@@ -2534,9 +2538,11 @@ def _calculate_free_slots(target_date):
                 "slots": set(),
             }
 
+    active_services_count = sum(1 for s in all_services
+                                if s.get("active") == 1)
     logger.info(
-        f"_calculate_free_slots({target_date}): подготовка ({len(service_ids)} "
-        f"услуг → {len(staff_map)} мастеров) заняла "
+        f"_calculate_free_slots({target_date}): подготовка ({active_services_count} "
+        f"активных услуг → {len(staff_map)} мастеров) заняла "
         f"{time.time() - _t_start:.1f}с")
 
     if not staff_map:
@@ -2551,7 +2557,8 @@ def _calculate_free_slots(target_date):
     def fetch_times(staff_id):
         local_err = []
         try:
-            slots = yc.get_available_times(None, staff_id,
+            slots = yc.get_available_times(None,
+                                           staff_id,
                                            target_date.isoformat(),
                                            error_flag=local_err)
         except Exception as e:
@@ -2563,7 +2570,7 @@ def _calculate_free_slots(target_date):
 
     with ThreadPoolExecutor(max_workers=_YC_MAX_WORKERS) as executor:
         for staff_id, slots, had_err in executor.map(fetch_times,
-                                                      staff_map.keys()):
+                                                     staff_map.keys()):
             if had_err:
                 errors.append(True)
                 continue
@@ -2575,8 +2582,8 @@ def _calculate_free_slots(target_date):
                     if t:
                         staff_map[staff_id]["slots"].add(t)
 
-    if staff_map and not errors and not any(
-            data["slots"] for data in staff_map.values()):
+    if staff_map and not errors and not any(data["slots"]
+                                            for data in staff_map.values()):
         # Подозрительный сигнал БЕЗ единой HTTP-ошибки: у нас есть
         # бронируемые мастера, но ни у одного из них ни одного свободного
         # слота за весь день. Разово у одного мастера — нормально
@@ -2597,7 +2604,9 @@ def _calculate_free_slots(target_date):
             result.append({
                 "id": staff_id,
                 "name": data["name"],
-                "free_slots": [{"time": t} for t in slots]
+                "free_slots": [{
+                    "time": t
+                } for t in slots]
             })
 
     logger.info(
@@ -2639,8 +2648,10 @@ def public_free_slots():
     # скоро попробовать снова, а не залипнуть на все 5 минут.
     cache_key = f"public_free_slots_{date_str}"
     cached, had_errors = get_cached_dynamic(
-        cache_key, lambda: _get_free_slots_safe(date_str, target_date),
-        ttl_success=300, ttl_error=45)
+        cache_key,
+        lambda: _get_free_slots_safe(date_str, target_date),
+        ttl_success=300,
+        ttl_error=45)
 
     return jsonify({"staff": cached, "date": target_date.isoformat()})
 
