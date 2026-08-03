@@ -1293,3 +1293,31 @@ document.addEventListener("DOMContentLoaded", function () {
   // ─── Начальное состояние: сразу показываем свободные окна ───
   fetchFreeSlots();
 })();
+
+// ─── Скрытие mobile-nav по тапу вне панели ───
+document.addEventListener("click", function (e) {
+  const mobileNav = document.querySelector(".mobile-nav");
+  const mobileNavToggle = document.querySelector(".mobile-nav-toggle");
+
+  if (!mobileNav) return;
+
+  // Клик по кнопке открытия/закрытия — переключаем панель
+  const toggleBtn = e.target.closest(".mobile-nav-toggle");
+  if (toggleBtn) {
+    const isHidden = mobileNav.classList.toggle("is-hidden");
+    mobileNavToggle?.classList.toggle("is-active", !isHidden);
+    return;
+  }
+
+  // Если панель сейчас открыта
+  if (!mobileNav.classList.contains("is-hidden")) {
+    // Клик внутри самой панели — не скрываем
+    if (e.target.closest(".mobile-nav")) {
+      return;
+    }
+
+    // Клик вне панели — скрываем
+    mobileNav.classList.add("is-hidden");
+    mobileNavToggle?.classList.remove("is-active");
+  }
+});
