@@ -343,7 +343,15 @@ document.addEventListener("DOMContentLoaded", () => {
   if (bookingGroup) {
     heroBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      bookingGroup.classList.toggle("open");
+
+      const isTouchMode =
+        window.matchMedia("(hover: none)").matches || window.innerWidth <= 700;
+
+      if (isTouchMode) {
+        bookingGroup.classList.toggle("open");
+      } else {
+        bookingGroup.classList.remove("open");
+      }
     });
     document.addEventListener(
       "touchstart",
@@ -1282,75 +1290,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // ─── Начальное состояние: не грузим слоты сразу при открытии страницы ───
-  // Раньше здесь сразу вызывался fetchFreeSlots() — если бэкенд ловил
-  // холодный (непрогретый) расчёт, посетитель с первой секунды видел
-  // спиннер на 15-30+ секунд, что выглядит как зависший сайт. Спиннер
-  // ПОСЛЕ явного клика воспринимается нормально даже если он не мгновенный,
-  // а вот спиннер, которого никто не просил, — нет. Фоновый прогрев на
-  // сервере всё равно продолжает греть кэш вне зависимости от того, зашёл
-  // ли кто-то на страницу, так что нагрузка на бэкенд от этой правки не
-  // меняется — меняется только то, когда фронт решает её показать.
-  function showInitialPlaceholder() {
-    currentDateEl.textContent = formatDateDisplay(currentDate);
-    mastersGrid.innerHTML = `
-            <div class="loading-state">
-                                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-bottom: 16px;">
-                  <defs>
-                    <linearGradient id="calendarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" style="stop-color:#8e9165;stop-opacity:1" />
-                      <stop offset="100%" style="stop-color:#65743d;stop-opacity:1" />
-                    </linearGradient>
-                    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" style="stop-color:#bac4a2;stop-opacity:0.3" />
-                      <stop offset="100%" style="stop-color:#8e9165;stop-opacity:0.1" />
-                    </linearGradient>
-                  </defs>
-                  
-                  <!-- Тень -->
-                  <rect x="8" y="14" width="48" height="44" rx="4" fill="#000" opacity="0.05"/>
-                  
-                  <!-- Основа календаря -->
-                  <rect x="6" y="12" width="48" height="44" rx="4" fill="url(#pageGrad)" stroke="url(#calendarGrad)" stroke-width="2"/>
-                  
-                  <!-- Верхняя полоса (заголовок) -->
-                  <rect x="6" y="12" width="48" height="12" rx="4" fill="url(#calendarGrad)" opacity="0.15"/>
-                  <line x1="6" y1="24" x2="54" y2="24" stroke="url(#calendarGrad)" stroke-width="1.5"/>
-                  
-                  <!-- Крепления -->
-                  <circle cx="18" cy="12" r="2.5" fill="url(#calendarGrad)"/>
-                  <circle cx="46" cy="12" r="2.5" fill="url(#calendarGrad)"/>
-                  
-                  <!-- Сетка дат (3x3) -->
-                  <g opacity="0.6">
-                    <rect x="12" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="24" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="36" y="28" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    
-                    <rect x="12" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="24" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="36" y="38" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    
-                    <rect x="12" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="24" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                    <rect x="36" y="48" width="8" height="6" rx="1" fill="url(#calendarGrad)" opacity="0.3"/>
-                  </g>
-                  const heroBtn = document.querySelector
-                </svg>
-                <div class="show-today-hint">Выберите дату, чтобы увидеть свободные окна мастеров</div>
-                <div class="show-today-wrap">
-                 <button type="button" id="showTodaySchedule" class="show-today-btn">
-                     <span class="show-today-btn-shine" aria-hidden="true"></span>
-                     <span class="show-today-btn-label">Показать на сегодня</span>
-                 </button>
-            </div>
-        `;
-    const showTodayBtn = document.getElementById("showTodaySchedule");
-    if (showTodayBtn) {
-      showTodayBtn.addEventListener("click", () => fetchFreeSlots());
-    }
-  }
-
-  // Инициализация
-  showInitialPlaceholder();
+  // ─── Начальное состояние: сразу показываем свободные окна ───
+  fetchFreeSlots();
 })();

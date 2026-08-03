@@ -1095,46 +1095,44 @@ button:hover {
 
 .hero-btn {
   height: 60px;
-  padding: 0 36px;
+  padding: 0 38px;
   position: relative;
-  isolation: isolate; /* пятно ::after не уходит под фон страницы */
-  border-radius: 30px;
+  isolation: isolate;
+
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+
   color: #fff;
-  white-space: nowrap;
-  /* «Живой» градиент — медленно переливается */
-  background: linear-gradient(
-    115deg,
-    #819155 0%,
-    hwb(77 60% 15%) 40%,
-    #b2c583 70%,
-    #79884f 100%
-  );
-  background-size: 240% 100%;
-  background-position: 0% 50%;
-  font-family: "Poppins", sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 1.8px;
+
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 35%),
+    linear-gradient(115deg, #6f7d47 0%, #91a65d 42%, #b5c986 65%, #7b8950 100%);
+
+  background-size: 100% 100%;
+
+  font-family: "Cormorant Garamond", serif;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -2px 6px rgba(30, 38, 18, 0.25),
-    0 10px 26px rgba(46, 61, 43, 0.3);
-  animation: heroBtnSheen 7s ease-in-out infinite;
-  transition:
-    width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-    height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-    padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-    color 0.25s ease,
-    background 0.3s ease,
-    box-shadow 0.45s ease,
-    border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0;
+
   cursor: pointer;
+
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px rgba(45, 55, 25, 0.22),
+    0 12px 30px rgba(60, 75, 35, 0.28);
+
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.45s ease,
+    filter 0.35s ease;
+
+  overflow: hidden;
 }
 
 .hero-btn::before {
@@ -1150,31 +1148,155 @@ button:hover {
     0 18px 42px rgba(46, 61, 43, 0.42);
 }
 
-.hero-btn.hero-btn-fixed {
-  position: relative;
-  width: 56px !important;
-  height: 56px;
-  padding: 0 !important;
-  color: transparent !important;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #4a5a2e 0%, #3a4822 100%);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-  display: block;
-}
+./* ═══════════ FINAL FIX: hero-btn-fixed + hover для hero-btn-split ═══════════ */
 
-.hero-btn.hero-btn-fixed::before {
-  content: "+";
-  position: absolute;
-  inset: 0;
-  display: flex;
+/* Фиксированная кнопка "+" */
+.hero-btn.hero-btn-fixed {
+  width: 56px !important;
+  height: 56px !important;
+  min-width: 56px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 28px;
-  font-weight: 300;
-  line-height: 1;
-  margin: 0;
-  padding: 0;
+  position: relative;
+  color: transparent !important;
+  background: linear-gradient(135deg, #8e9165 0%, #6f7c47 48%, #5d683a 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 28px rgba(92, 94, 67, 0.26);
+  animation: none;
+}
+
+/*
+  Плюс делаем не текстом, а SVG-иконкой.
+  Это гарантирует идеальное центрирование.
+*/
+.hero-btn.hero-btn-fixed::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5v14M5 12h14' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: 22px 22px;
+  pointer-events: none;
+}
+
+/* Убираем старые блики/пятна у фиксированной кнопки */
+.hero-btn.hero-btn-fixed::after {
+  content: none !important;
+}
+
+.hero-btn.hero-btn-fixed:hover,
+.hero-btn.hero-btn-fixed:focus-visible {
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Фиксированная группа */
+.hero-booking-group.has-fixed {
+  position: fixed !important;
+  right: 24px !important;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 1200;
+  padding: 0 !important;
+  gap: 0;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+}
+
+/*
+  Выпадающее меню слева от кнопки "+".
+
+  Важно:
+  right: 100% + padding-right: 12px создаёт невидимый "мост"
+  между кнопкой "+" и выпадающими кнопками.
+
+  Из-за этого курсор не проваливается в пустую зону,
+  и меню не закрывается раньше времени.
+*/
+.hero-booking-group.has-fixed .hero-btn-split {
+  --split-hidden: translateX(12px) translateY(-50%) scale(0.96);
+  --split-visible: translateX(0) translateY(-50%) scale(1);
+
+  position: absolute !important;
+  right: 100% !important;
+  left: auto !important;
+  top: 50% !important;
+  bottom: auto !important;
+
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  align-items: center;
+  gap: 0;
+
+  /* правый padding работает как hover-мост к кнопке "+" */
+  padding: 0 12px 0 0 !important;
+
+  opacity: 0;
+  pointer-events: none;
+  transform: var(--split-hidden);
+  transition:
+    opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 1;
+}
+
+/* Показываем меню */
+.hero-booking-group.has-fixed:hover .hero-btn-split,
+.hero-booking-group.has-fixed:focus-within .hero-btn-split,
+.hero-booking-group.has-fixed.open .hero-btn-split {
+  opacity: 1;
+  pointer-events: auto;
+  transform: var(--split-visible);
+}
+
+/* Кнопки внутри выпадающего меню */
+.hero-booking-group.has-fixed .hero-btn-split-item {
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* Не даём кнопке "+" затемняться, когда наведено меню */
+.hero-booking-group:has(.hero-btn-split:hover) .hero-btn.hero-btn-fixed,
+.hero-booking-group:focus-within .hero-btn.hero-btn-fixed {
+  opacity: 1 !important;
+}
+
+/* Мобильная адаптация */
+@media (max-width: 700px) {
+  .hero-booking-group.has-fixed {
+    right: 16px !important;
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .hero-booking-group.has-fixed .hero-btn-split {
+    --split-hidden: translateY(12px) scale(0.96);
+    --split-visible: translateY(0) scale(1);
+
+    right: 0 !important;
+    left: auto !important;
+    top: auto !important;
+    bottom: calc(100% + 12px) !important;
+
+    flex-direction: column !important;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 0 !important;
+  }
+
+  .hero-booking-group.has-fixed .hero-btn-split-item {
+    height: 50px;
+    min-width: 200px;
+    border-radius: 14px !important;
+  }
 }
 
 .hero-booking-group {
@@ -2117,7 +2239,7 @@ button:hover {
   background: #ffffff;
   border-radius: 16px;
   padding: 28px;
-  box-shadow: 0 2px 12px rgba(92, 94, 67, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(232, 230, 217, 0.5);
   transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
   display: flex;
@@ -2126,7 +2248,7 @@ button:hover {
 
 .schedule-section .master-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(92, 94, 67, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
   border-color: #a3a682;
 }
 
@@ -3807,151 +3929,6 @@ html {
   }
 }
 
-/* ─── Кнопка «Показать на сегодня» (плейсхолдер расписания) ─── */
-.show-today-hint {
-  margin-bottom: 32px; /* отступ текста от кнопки — чуть больше, чем было */
-}
-
-/* Обёртка отвечает за лёгкое «парение» в спокойном состоянии */
-.show-today-wrap {
-  display: inline-block;
-  animation: todayBtnFloat 5.5s ease-in-out infinite;
-}
-
-.show-today-btn {
-  position: relative;
-  isolation: isolate; /* пятно ::before не уходит под фон страницы */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 62px;
-  padding: 20px 58px;
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  font-family: "Poppins", sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 2.5px;
-  text-transform: uppercase;
-  color: #fff;
-  /* «Живой» градиент — медленно переливается */
-  background: linear-gradient(
-    115deg,
-    #8e9165 0%,
-    #65743d 40%,
-    #9aa06b 70%,
-    #65743d 100%
-  );
-  background-size: 240% 100%;
-  background-position: 0% 50%;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    inset 0 -2px 6px rgba(46, 47, 34, 0.18),
-    0 14px 32px rgba(101, 116, 61, 0.28);
-  animation: todayBtnSheen 7s ease-in-out infinite;
-  transition:
-    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.5s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Размытая граница-«пятно» вокруг кнопки */
-.show-today-btn::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  border-radius: inherit;
-  background: radial-gradient(
-    120% 170% at 50% 50%,
-    rgba(142, 145, 101, 0.7) 0%,
-    rgba(101, 116, 61, 0.42) 55%,
-    transparent 80%
-  );
-  filter: blur(18px);
-  z-index: -1;
-  pointer-events: none;
-  animation: todayBtnGlow 3.8s ease-in-out infinite;
-  transition:
-    opacity 0.45s ease,
-    filter 0.45s ease,
-    inset 0.45s ease;
-}
-
-/* Слой для блика, пробегающего при наведении */
-.show-today-btn-shine {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  overflow: hidden;
-  pointer-events: none;
-}
-.show-today-btn-shine::after {
-  content: "";
-  position: absolute;
-  top: -30%;
-  bottom: -30%;
-  left: -70%;
-  width: 45%;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.45) 50%,
-    transparent 100%
-  );
-  transform: skewX(-22deg);
-}
-
-.show-today-btn-label {
-  position: relative;
-  z-index: 1;
-}
-
-/* ─── Анимации покоя ─── */
-@keyframes todayBtnFloat {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-
-@keyframes todayBtnSheen {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes todayBtnGlow {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scale(1);
-    filter: blur(16px);
-  }
-  50% {
-    opacity: 0.95;
-    transform: scale(1.07);
-    filter: blur(23px);
-  }
-}
-
-/* ─── Анимация блика при наведении ─── */
-@keyframes todayBtnSweep {
-  from {
-    left: -70%;
-  }
-  to {
-    left: 140%;
-  }
-}
-
 /* ─── Hover / focus ─── */
 .show-today-btn:hover,
 .show-today-btn:focus-visible {
@@ -4008,31 +3985,36 @@ html {
 .hero-btn::after {
   content: "";
   position: absolute;
-  inset: -7px;
-  border-radius: inherit;
-  background: radial-gradient(
-    120% 170% at 50% 50%,
-    rgba(101, 116, 61, 0.7) 0%,
-    rgba(82, 95, 46, 0.42) 55%,
-    transparent 80%
+  inset: -50% -20%;
+
+  background: linear-gradient(
+    120deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%
   );
-  filter: blur(16px);
+
+  transform: translateX(-120%) rotate(10deg);
+
+  transition: transform 0.8s ease;
+
   z-index: -1;
-  pointer-events: none;
-  animation: heroBtnGlow 3.8s ease-in-out infinite;
-  transition:
-    opacity 0.45s ease,
-    filter 0.45s ease,
-    inset 0.45s ease;
 }
 
 /* При наведении пятно становится ярче и шире */
-.hero-btn:hover::after,
-.hero-btn:focus-visible::after {
-  animation: none;
-  opacity: 1;
-  filter: blur(22px);
-  inset: -11px;
+.hero-btn:hover {
+  transform: translateY(-3px);
+
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.4),
+    inset 0 -8px 15px rgba(45, 55, 25, 0.25),
+    0 18px 42px rgba(60, 75, 35, 0.38);
+
+  filter: saturate(1.08);
+}
+
+.hero-btn:hover::after {
+  transform: translateX(120%) rotate(10deg);
 }
 
 /* Бликовый слой (span создаётся в script.js) */
@@ -4162,6 +4144,264 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .hero-btn,
   .hero-btn::after,
+  .hero-booking-group:not(.has-fixed) {
+    animation: none;
+  }
+}
+
+/* ═══════════ Адаптация master-card под service-category ═══════════ */
+
+.schedule-section .masters-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 32px;
+  margin-top: 32px;
+}
+
+.schedule-section .master-card {
+  width: calc(33.333% - 22px);
+  min-width: 300px;
+  max-width: 380px;
+  flex: 0 0 auto;
+  padding: 32px;
+  border-radius: 16px;
+}
+
+/* Чтобы состояния загрузки/ошибки занимали всю ширину */
+.schedule-section .loading-state {
+  width: 100%;
+  flex: 0 0 100%;
+  grid-column: auto;
+}
+
+/* Планшет: 2 карточки в ряд */
+@media (max-width: 1024px) {
+  .schedule-section .master-card {
+    width: calc(50% - 16px);
+  }
+}
+
+/* Мобильные: чуть уменьшаем отступы */
+@media (max-width: 768px) {
+  .schedule-section .masters-grid {
+    gap: 24px;
+  }
+
+  .schedule-section .master-card {
+    padding: 24px;
+  }
+}
+
+/* Узкие мобильные: 1 карточка в ряд */
+@media (max-width: 640px) {
+  .schedule-section .masters-grid {
+    gap: 20px;
+  }
+
+  .schedule-section .master-card {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 24px;
+  }
+}
+
+/* ═══════════ FIX: hero-btn-fixed + мягкий перелив hero-btn ═══════════ */
+
+/* Обычная hero-btn: мягкий, неяркий градиентный перелив */
+.hero-btn {
+  overflow: hidden;
+  background:
+    linear-gradient(
+      120deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0) 38%
+    ),
+    linear-gradient(
+      115deg,
+      #7b8452 0%,
+      #8e9165 26%,
+      #a2ac7a 50%,
+      #8a9260 74%,
+      #6e7847 100%
+    );
+  background-size:
+    100% 100%,
+    230% 100%;
+  background-position:
+    0 0,
+    0% 50%;
+  animation: heroSoftGradient 12s ease-in-out infinite;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 24px rgba(92, 94, 67, 0.2);
+}
+
+.hero-btn:hover,
+.hero-btn:focus-visible {
+  filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 30px rgba(92, 94, 67, 0.26);
+}
+
+/* Убираем старые слишком активные блики/пятна */
+.hero-btn::after,
+.hero-btn.hero-btn-fixed::after {
+  content: none;
+}
+
+.hero-btn-shine::after {
+  animation: none !important;
+  opacity: 0;
+}
+
+/* Фиксированная кнопка "+" */
+.hero-booking-group.has-fixed {
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 520;
+  padding: 0;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 10px;
+}
+
+.hero-btn.hero-btn-fixed {
+  width: 56px !important;
+  height: 56px !important;
+  min-width: 56px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: transparent;
+  background: linear-gradient(135deg, #8e9165 0%, #6f7c47 48%, #5d683a 100%);
+  background-size: 180% 180%;
+  background-position: 0% 50%;
+  animation: heroFixedSoftGradient 9s ease-in-out infinite;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 28px rgba(92, 94, 67, 0.26);
+  transform: none;
+}
+
+.hero-btn.hero-btn-fixed::before {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.hero-btn.hero-btn-fixed:hover,
+.hero-btn.hero-btn-fixed:focus-visible {
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Выпадающие кнопки рядом с фиксированной кнопкой */
+.hero-booking-group.has-fixed .hero-btn-split {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  padding: 0;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(12px) translateY(-50%) scale(0.96);
+  transition:
+    opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.hero-booking-group.has-fixed:has(.hero-btn:hover) .hero-btn-split,
+.hero-booking-group.has-fixed:has(.hero-btn-split:hover) .hero-btn-split,
+.hero-booking-group.has-fixed:focus-within .hero-btn-split,
+.hero-booking-group.has-fixed.open .hero-btn-split {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) translateY(-50%) scale(1);
+}
+
+.hero-booking-group.has-fixed .hero-btn-split-item {
+  height: 56px;
+}
+
+/* Мобильная адаптация фиксированной кнопки */
+@media (max-width: 700px) {
+  .hero-booking-group.has-fixed {
+    right: 16px;
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .hero-booking-group.has-fixed .hero-btn-split {
+    right: 0;
+    left: auto;
+    top: auto;
+    bottom: calc(100% + 12px);
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    transform: translateY(10px) scale(0.95);
+  }
+
+  .hero-booking-group.has-fixed:has(.hero-btn:hover) .hero-btn-split,
+  .hero-booking-group.has-fixed:has(.hero-btn-split:hover) .hero-btn-split,
+  .hero-booking-group.has-fixed:focus-within .hero-btn-split,
+  .hero-booking-group.has-fixed.open .hero-btn-split {
+    transform: translateY(0) scale(1);
+  }
+
+  .hero-booking-group.has-fixed .hero-btn-split-item {
+    height: 50px;
+    min-width: 200px;
+    border-radius: 14px !important;
+    border: none !important;
+  }
+}
+
+/* Плавные анимации перелива */
+@keyframes heroSoftGradient {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      0% 50%;
+  }
+  50% {
+    background-position:
+      0 0,
+      100% 50%;
+  }
+}
+
+@keyframes heroFixedSoftGradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Уважение к reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .hero-btn,
+  .hero-btn.hero-btn-fixed,
   .hero-booking-group:not(.has-fixed) {
     animation: none;
   }
