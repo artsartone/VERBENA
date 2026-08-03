@@ -341,15 +341,67 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (bookingGroup) {
+    let heroFixedPress = null;
+
+    heroBtn.addEventListener(
+      "pointerdown",
+      (e) => {
+        heroFixedPress = {
+          x: e.clientX,
+          y: e.clientY,
+          t: Date.now(),
+        };
+      },
+      { passive: true },
+    );
+
+    heroBtn.addEventListener(
+      "pointercancel",
+      () => {
+        heroFixedPress = null;
+      },
+      { passive: true },
+    );
+
+    window.addEventListener(
+      "scroll",
+      () => {
+        heroFixedPress = null;
+      },
+      { passive: true },
+    );
+
     heroBtn.addEventListener("click", (e) => {
       e.stopPropagation();
 
-      const isTouchMode =
-        window.matchMedia("(hover: none)").matches || window.innerWidth <= 700;
-
-      if (isTouchMode) {
+      // Клик с клавиатуры (Enter/Space)
+      if (e.detail === 0) {
         bookingGroup.classList.toggle("open");
-      } else {
+        return;
+      }
+
+      if (!heroFixedPress) return;
+
+      const dx = e.clientX - heroFixedPress.x;
+      const dy = e.clientY - heroFixedPress.y;
+      const distance = Math.hypot(dx, dy);
+      const duration = Date.now() - heroFixedPress.t;
+
+      heroFixedPress = null;
+
+      // Если было движение пальцем/курсором или долгое удержание —
+      // это скролл/жест, а не нажатие на кнопку
+      if (distance > 10 || duration > 500) return;
+
+      bookingGroup.classList.toggle("open");
+    });
+
+    // Закрытие hero-меню при клике вне его области
+    document.addEventListener("click", (e) => {
+      if (
+        bookingGroup.classList.contains("open") &&
+        !bookingGroup.contains(e.target)
+      ) {
         bookingGroup.classList.remove("open");
       }
     });
