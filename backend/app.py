@@ -3,6 +3,7 @@ import os
 import re
 import csv
 import io
+import time
 
 # ─── Настройка путей (ОБЯЗАТЕЛЬНО ДО ОСТАЛЬНЫХ ИМПОРТОВ) ───
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1447,6 +1448,17 @@ _ycache_key_locks = {}
 _ycache_key_locks_lock = threading.Lock()
 _YCACHE_TTL = 300  # 5 минут
 
+# Максимум одновременных запросов к YClients при расчёте free-slots.
+# Раньше было 10 — на проде (больше услуг/мастеров, чем в тесте) такой
+# всплеск параллельных запросов, судя по всему, приводил к мягкому
+# rate-limit'у на стороне YClients: без HTTP-ошибки, просто пустой
+# ответ. Понизили и развели по времени "раунды" запросов (см.
+# _calculate_free_slots) — цена в скорости холодного расчёта, но
+# именно холодные расчёты и не должны происходить синхронно на живом
+# запросе пользователя (см. фоновый прогрев кэша ниже).
+_YC_MAX_WORKERS = 4
+_YC_ROUND_DELAY = 0.3  # секунд паузы между раундами запросов
+
 
 def _get_key_lock(key):
     """Возвращает (создавая при необходимости) отдельный lock для ключа."""
@@ -1562,6 +1574,103 @@ def get_cached_dynamic(key, fetch_func, ttl_success=None, ttl_error=20):
                 'had_errors': had_errors,
             }
         return result, had_errors
+
+
+# ──────────── ПОСЛЕДНИЙ НАДЁЖНЫЙ РЕЗУЛЬТАТ FREE-SLOTS ────────────
+# На проде (больше услуг/мастеров, чем в тестовом аккаунте) YClients
+# иногда отдаёт под нагрузкой формально успешный (200 OK), но полностью
+# пустой ответ — без единой HTTP-ошибки. Обычный error_flag/retry это
+# не ловит. Поэтому храним отдельно последний результат, который прошёл
+# без признаков сбоя (см. эвристики внутри _calculate_free_slots), и
+# если новый расчёт выглядит подозрительно — отдаём пользователю его,
+# а не свежую "пустоту", пока не подтвердится, что она настоящая.
+_last_good_slots = {}  # date_str -> {'data': [...], 'timestamp': float}
+_last_good_slots_lock = threading.Lock()
+_LAST_GOOD_MAX_AGE = 6 * 3600  # не подставляем результат старше 6 часов
+
+
+def _get_free_slots_safe(date_str, target_date):
+    """Считает free-slots на дату с защитой от "тихого" throttling
+    YClients: если расчёт помечен как подозрительный (had_errors) —
+    подменяем результат последним надёжным, если он не слишком старый,
+    вместо показа ложного "всё занято". Возвращает (result, had_errors)
+    как и _calculate_free_slots — had_errors=True сохраняется даже при
+    подмене, чтобы кэш всё равно взял короткий TTL и попробовал снова
+    в следующий раз.
+    """
+    result, had_errors = _calculate_free_slots(target_date)
+
+    if not had_errors:
+        # Надёжный результат (даже если пустой — значит, реально всё
+        # занято/выходной) — запоминаем как последний известный хороший.
+        with _last_good_slots_lock:
+            _last_good_slots[date_str] = {
+                'data': result,
+                'timestamp': datetime.now().timestamp(),
+            }
+        return result, False
+
+    # Расчёт подозрительный — пробуем подстраховаться прошлым хорошим
+    with _last_good_slots_lock:
+        fallback = _last_good_slots.get(date_str)
+    if fallback is not None:
+        age = datetime.now().timestamp() - fallback['timestamp']
+        if age < _LAST_GOOD_MAX_AGE:
+            logger.warning(
+                f"_get_free_slots_safe: расчёт для {date_str} подозрительный, "
+                f"подставляем последний надёжный результат ({int(age)}с назад) "
+                f"вместо него")
+            return fallback['data'], True
+
+    # Подстраховки нет или она слишком старая — отдаём то, что есть
+    logger.warning(
+        f"_get_free_slots_safe: расчёт для {date_str} подозрительный, "
+        f"надёжной подстраховки нет — отдаём как есть")
+    return result, True
+
+
+# ──────────── ФОНОВЫЙ ПРОГРЕВ КЭША FREE-SLOTS ────────────
+# Раньше кэш заполнялся только "по требованию" — первый посетитель дня
+# сам вызывал холодный расчёт и получал (или не получал) весь его риск
+# на себя. Теперь фоновый поток сам поддерживает кэш тёплым для
+# ближайших дней, обновляя его заметно чаще, чем истекает TTL, — так что
+# обычные посетители почти всегда просто читают готовый кэш, а не
+# запускают синхронный расчёт с всплеском запросов к YClients.
+_SLOTS_PREWARM_WINDOW_DAYS = 5
+_SLOTS_PREWARM_INTERVAL = 180  # секунд между прогревами
+
+
+def _prewarm_free_slots():
+    today = datetime.now().date()
+    for offset in range(_SLOTS_PREWARM_WINDOW_DAYS):
+        target_date = today + timedelta(days=offset)
+        date_str = target_date.isoformat()
+        cache_key = f"public_free_slots_{date_str}"
+        try:
+            get_cached_dynamic(
+                cache_key,
+                lambda d=date_str, t=target_date: _get_free_slots_safe(d, t),
+                ttl_success=300, ttl_error=20)
+        except Exception as e:
+            logger.error(f"Прогрев free-slots для {date_str} не удался: {e}")
+        # Пауза между датами — тот же принцип: не бить по YClients
+        # запросами на несколько дней подряд одним всплеском.
+        time.sleep(_YC_ROUND_DELAY * 2)
+
+
+def _run_slots_prewarmer():
+    # Небольшая начальная пауза, чтобы не стартовать прогрев одновременно
+    # с остальной инициализацией приложения.
+    threading.Event().wait(5)
+    while True:
+        try:
+            _prewarm_free_slots()
+        except Exception as e:
+            logger.error(f"Ошибка фонового прогрева free-slots: {e}")
+        threading.Event().wait(_SLOTS_PREWARM_INTERVAL)
+
+
+threading.Thread(target=_run_slots_prewarmer, daemon=True).start()
 
 
 # ──────────── СПИСОК УСЛУГ ────────────
@@ -2270,6 +2379,15 @@ def _calculate_free_slots(target_date):
     времена) не удался даже после ретраев — то есть пустой или неполный
     result может не отражать реальную картину, и кэшировать его как
     "точно всё занято" на обычный TTL не стоит (см. get_cached_dynamic).
+
+    ВАЖНО про параллелизм: на проде (больше услуг/мастеров, чем в тесте)
+    YClients может не отвечать HTTP-ошибкой на всплеск параллельных
+    запросов, а просто "тихо" отдавать пустые, но формально валидные
+    (200 OK, data: []) ответы — так называемый мягкий rate-limit, который
+    retry по статус-коду не поймает. Поэтому здесь сознательно держим
+    параллелизм ниже (_YC_MAX_WORKERS) и добавляем небольшую паузу между
+    "раундами" запросов (получение мастеров → доступные даты → точные
+    времена), а не бьём по YClients всеми запросами одновременно.
     """
     errors = []  # общий флаг ошибок на весь расчёт; list — чтобы можно
     # было передавать как error_flag в функции yclients_api и просто
@@ -2306,7 +2424,7 @@ def _calculate_free_slots(target_date):
 
     # 2a. Параллельно получаем список мастеров для каждой услуги
     service_staff_pairs = []  # [(service_id, staff_id), ...] без дублей
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=_YC_MAX_WORKERS) as executor:
         for service_id, service_staff in executor.map(
                 fetch_staff_for_service, service_ids):
             for staff in service_staff:
@@ -2319,6 +2437,10 @@ def _calculate_free_slots(target_date):
                         "slots": set()
                     }
                 service_staff_pairs.append((service_id, staff_id))
+
+    # Небольшая пауза перед следующим раундом запросов — не бьём по
+    # YClients второй пачкой запросов сразу же вслед за первой.
+    time.sleep(_YC_ROUND_DELAY)
 
     def _normalize_available_dates(raw):
         """Приводит ответ yc.get_available_dates к множеству дат 'YYYY-MM-DD'.
@@ -2390,11 +2512,30 @@ def _calculate_free_slots(target_date):
     # день — и только тогда идём за точными временами. Экономит
     # большинство вызовов get_available_times, которые всё равно
     # вернули бы пустой список.
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=_YC_MAX_WORKERS) as executor:
         candidate_pairs = [
             pair for pair, has_date in executor.map(
                 pair_has_target_date, service_staff_pairs) if has_date
         ]
+
+    if service_staff_pairs and not candidate_pairs:
+        # Подозрительный сигнал БЕЗ единой HTTP-ошибки: у нас есть
+        # мастера, оказывающие услуги (service_staff_pairs непуст), но
+        # book_dates буквально ни для одной пары не нашёл ни одного
+        # доступного дня за весь месяц. Это и есть тот самый "мягкий"
+        # throttling YClients — запросы возвращают 200 OK с пустыми
+        # данными вместо ошибки, поэтому обычный error_flag это не
+        # ловит. Одновременная полная пустота у ВСЕХ пар за целый
+        # месяц — гораздо менее вероятное объяснение, чем сбой на
+        # стороне API при слишком плотной пачке запросов.
+        logger.warning(
+            f"_calculate_free_slots: book_dates вернул пусто для ВСЕХ "
+            f"{len(service_staff_pairs)} пар услуга+мастер — похоже на "
+            f"мягкий throttling YClients, а не на реальное отсутствие "
+            f"доступности. Помечаем расчёт как подозрительный.")
+        errors.append(True)
+
+    time.sleep(_YC_ROUND_DELAY)
 
     def fetch_times(pair):
         service_id, staff_id = pair
@@ -2413,7 +2554,7 @@ def _calculate_free_slots(target_date):
 
     # 2c. Параллельно получаем точные слоты только для пар, у которых
     # target_date реально входит в доступные дни месяца
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=_YC_MAX_WORKERS) as executor:
         for staff_id, slots in executor.map(fetch_times, candidate_pairs):
             if not isinstance(slots, list):
                 continue
@@ -2422,6 +2563,19 @@ def _calculate_free_slots(target_date):
                     staff_map[staff_id]["slots"].add(slot)
                 elif isinstance(slot, dict) and slot.get("available", True):
                     staff_map[staff_id]["slots"].add(slot.get("time", ""))
+
+    if candidate_pairs and not any(data["slots"] for data in staff_map.values()):
+        # Второй такой же сигнал: book_dates подтвердил, что у этих пар
+        # ЕСТЬ доступные дни в этом месяце (иначе они не попали бы в
+        # candidate_pairs), но book_times для конкретно target_date не
+        # вернул ни одного слота ни у кого. Разово у одного мастера —
+        # нормально (например, выходной), но одновременно у ВСЕХ — тот
+        # же подозрительный паттерн мягкого throttling.
+        logger.warning(
+            f"_calculate_free_slots: book_times вернул пусто для ВСЕХ "
+            f"{len(candidate_pairs)} пар с подтверждённой доступностью "
+            f"в этом месяце — похоже на мягкий throttling YClients.")
+        errors.append(True)
 
     # 3. Формируем результат
     # Отдаём каждый реальный слот из YClients как есть — без склейки в
@@ -2464,14 +2618,15 @@ def public_free_slots():
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
 
     # Кэшируем на 5 минут для снижения нагрузки на YClients API.
-    # Если расчёт прошёл с ошибками (сбои запросов к YClients — типично
-    # при "холодном" кэше, когда сразу летит пачка параллельных запросов),
-    # результат может ложно показывать "всё занято" — кэшируем такой
-    # результат всего на 20 секунд, чтобы он быстро самоисправился,
-    # а не "залипал" на все 5 минут для всех посетителей.
+    # _get_free_slots_safe уже прогрет фоновым потоком для ближайших
+    # дней (см. _run_slots_prewarmer) — обычно этот вызов просто читает
+    # готовый кэш. Если расчёт всё же подозрительный (см. эвристики и
+    # error_flag внутри _calculate_free_slots) — подставляется последний
+    # надёжный результат, а кэш всё равно берёт короткий TTL (20с), чтобы
+    # скоро попробовать снова, а не залипнуть на все 5 минут.
     cache_key = f"public_free_slots_{date_str}"
     cached, had_errors = get_cached_dynamic(
-        cache_key, lambda: _calculate_free_slots(target_date),
+        cache_key, lambda: _get_free_slots_safe(date_str, target_date),
         ttl_success=300, ttl_error=20)
 
     return jsonify({"staff": cached, "date": target_date.isoformat()})
