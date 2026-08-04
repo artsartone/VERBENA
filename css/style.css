@@ -709,7 +709,14 @@ body {
 #loader {
   position: fixed;
   inset: 0;
-  background: linear-gradient(135deg, #dfe5cf 0%, #bac4a2 48%, #aeb994 100%);
+  background: radial-gradient(
+    circle at 50% 42%,
+    #dde3cc 0%,
+    #c9d2b1 35%,
+    #bac4a2 62%,
+    #b3bd9a 82%,
+    #bac4a2 100%
+  );
   display: flex;
   justify-content: center;
   align-items: center;
