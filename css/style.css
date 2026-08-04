@@ -10,7 +10,7 @@ nav {
   justify-content: space-between;
   align-items: center;
   padding: 0;
-  background: linear-gradient(135deg, #bac4a2 0%, #aeb994 50%, #8e9165 100%);
+  background: #bac4a2;
   border-bottom: 1px solid #cbd2b0;
 }
 
@@ -81,44 +81,17 @@ body {
   height: 100dvh;
 }
 
+html,
 body {
-  background: #e9eddc;
+  background: #bac4a2;
   overflow-x: hidden;
   color: #293222;
 }
 
-/* ===== Кастомный скроллбар ===== */
-html {
-  scrollbar-width: thin;
-  scrollbar-color: #b7bb88 #e9eddc;
+.hero {
+  background-color: #e9eddc;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #e9eddc;
-  border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #bac4a2 0%, #8e9165 100%);
-  border-radius: 10px;
-  border: 2px solid #e9eddc;
-  transition: background 0.3s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #aeb994 0%, #65743d 100%);
-}
-
-::-webkit-scrollbar-corner {
-  background: #e9eddc;
-}
-
-/* ───────── Модальные окна (премиум-стиль) ───────── */
 .modal {
   position: fixed;
   inset: 0;
@@ -934,14 +907,15 @@ button:hover {
 }
 
 .hero {
-  width: min(1160px, calc(100% - 64px));
+  width: auto;
   min-height: 620px;
-  margin-inline: auto;
-  padding: 112px 0 128px;
+  margin-inline: 0;
+  padding: 112px max(32px, calc((100% - 1160px) / 2)) 128px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
   gap: 32px;
   align-items: center;
+  background-color: #e9eddc;
 }
 
 .hero-media {
@@ -1220,11 +1194,19 @@ button:hover {
 }
 
 /* Кнопки внутри выпадающего меню */
+/* ═══ УБРАТЬ pointer-events: auto из скрытого состояния ═══ */
 .hero-booking-group.has-fixed .hero-btn-split-item {
   height: 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* pointer-events НЕ задаём — наследуем none от родителя */
+}
+
+/* ═══ pointer-events: auto ТОЛЬКО когда меню видимо ═══ */
+.hero-booking-group.has-fixed.open .hero-btn-split-item,
+.hero-booking-group.has-fixed:hover .hero-btn-split-item,
+.hero-booking-group.has-fixed:focus-within .hero-btn-split-item {
   pointer-events: auto;
 }
 
@@ -2550,21 +2532,23 @@ button:hover {
 }
 
 @media (max-width: 700px) {
-  .nav-content,
-  .hero {
+  .nav-content {
     width: calc(100% - 48px);
+    margin-inline: auto;
+  }
+
+  .hero {
+    width: 100%;
+    margin-inline: 0;
+    min-height: auto;
+    padding: 76px 24px 88px;
+    grid-template-columns: 1fr;
+    gap: 48px;
   }
 
   .services-container {
     width: calc(100% - 48px);
     padding: 0;
-  }
-
-  .hero {
-    min-height: auto;
-    padding: 76px 0 88px;
-    grid-template-columns: 1fr;
-    gap: 48px;
   }
 
   .hero-text {
@@ -3635,7 +3619,7 @@ html {
 
 /* ─── Футер ─── */
 .site-footer {
-  background: linear-gradient(135deg, #bac4a2 0%, #aeb994 50%, #8e9165 100%);
+  background:  #bac4a2;
   padding: 35px 20px 25px;
   margin-top: 0;
 }
@@ -4134,7 +4118,7 @@ html {
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: transparent;
-  background: linear-gradient(135deg, #8e9165 0%, #6f7c47 48%, #5d683a 100%);
+  background: linear-gradient(135deg, #8e9165 0%, #8b9865 48%, #8f9c66 100%);
   background-size: 180% 180%;
   background-position: 0% 50%;
   animation: heroFixedSoftGradient 9s ease-in-out infinite;
@@ -4277,26 +4261,17 @@ html {
     justify-content: center;
   }
 
-  /* Убираем десктопные скругления "стык в стык" */
   .hero-booking-group.has-fixed .hero-btn-split-item:first-child,
   .hero-booking-group.has-fixed .hero-btn-split-item:last-child {
     border-radius: 14px !important;
   }
 }
 
-/* ═══════════ FINAL FIX: hero-btn-fixed только по клику + синхронизация с mobile-nav-toggle ═══════════ */
-
-/* Убираем липкий тап-блик и двойной тап-зум на fixed-кнопке */
 .hero-btn.hero-btn-fixed {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
-/*
-  Отключаем открытие fixed-меню по hover/focus.
-  Дальше оно будет открываться только через класс .open,
-  который ставится JS по реальному тапу/клику.
-*/
 .hero-booking-group.has-fixed:hover .hero-btn-split,
 .hero-booking-group.has-fixed:focus-within .hero-btn-split {
   opacity: 0 !important;
@@ -4326,12 +4301,7 @@ html {
   }
 }
 
-/*
-  Синхронизация mobile-nav-toggle и hero-btn-fixed:
-  - одинаковый нижний отступ;
-  - зеркальное расположение слева/справа;
-  - одинаковая анимация при изменении высоты мобильного браузера.
-*/
+
 @media (max-width: 700px) {
   .mobile-nav-toggle {
     left: 14px !important;
@@ -4349,5 +4319,197 @@ html {
     bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
     transition: all 0.3s ease !important;
     will-change: bottom;
+  }
+}
+
+/* ═══════════ Custom page scrollbar ═══════════ */
+
+html.custom-scroll,
+html.custom-scroll body {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.custom-scroll::-webkit-scrollbar,
+html.custom-scroll body::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+
+.page-scrollbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  z-index: 1600;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.page-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #bac4a2 0%, #8e9165 100%);
+  opacity: 0.85;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+  transition: opacity 0.2s ease;
+}
+
+.page-scrollbar:hover .page-scrollbar-thumb {
+  opacity: 1;
+}
+
+.page-scrollbar.is-dragging .page-scrollbar-thumb {
+  opacity: 1;
+  cursor: grabbing;
+}
+
+.side-nav {
+  /* Насколько полоска видна в закрытом состоянии.
+     Было 22px, стало 16px. Можно поставить 14px, если нужно ещё уже. */
+  --side-nav-peek: 16px;
+
+  transform: translateY(-50%) translateX(calc(-100% + var(--side-nav-peek)));
+
+  /* Чуть уменьшаем внутренние отступы */
+  padding: 16px 10px 16px 6px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0) 40%
+    ),
+    linear-gradient(
+      180deg,
+      #7b8452 0%,
+      #9da071 26%,
+      #b6bf93 50%,
+      #969e6b 74%,
+      #6e7847 100%
+    );
+
+  background-size:
+    100% 100%,
+    100% 230%;
+
+  background-position:
+    0 0,
+    50% 0%;
+
+  background-repeat: no-repeat;
+
+  animation: sideNavVerticalSheen 12s ease-in-out infinite;
+}
+
+/* Если нужно, чтобы открытая панель тоже была в этом переливе */
+.side-nav.open {
+  transform: translateY(-50%) translateX(0);
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0) 40%
+    ),
+    linear-gradient(
+      180deg,
+      #7b8452 0%,
+      #8e9165 26%,
+      #a2ac7a 50%,
+      #8a9260 74%,
+      #6e7847 100%
+    );
+
+  background-size:
+    100% 100%,
+    100% 230%;
+
+  background-position:
+    0 0,
+    50% 0%;
+
+  background-repeat: no-repeat;
+
+  animation: sideNavVerticalSheen 12s ease-in-out infinite;
+
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    -10px 10px 30px rgba(41, 50, 34, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* Делаем пункты чуть компактнее */
+.side-nav-link {
+  padding: 8px 10px 8px 8px;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+}
+
+/* Кнопка "Присоединиться" тоже чуть компактнее */
+.side-nav-career-btn {
+  padding: 9px 10px 9px 9px !important;
+  font-size: 11px !important;
+}
+
+/* Если открытая панель тёмная, ссылки должны быть светлыми */
+.side-nav.open .side-nav-link {
+  color: #fff;
+  opacity: 0.82;
+}
+
+.side-nav.open .side-nav-link:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  opacity: 1;
+}
+
+.side-nav.open .side-nav-link.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.8);
+}
+
+.side-nav.open .side-nav-career-btn {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  color: #fff !important;
+}
+
+.side-nav.open .side-nav-career-btn:hover {
+  background: rgba(255, 255, 255, 0.24) !important;
+}
+
+/* Вертикальный перелив */
+@keyframes sideNavVerticalSheen {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      50% 0%;
+  }
+
+  50% {
+    background-position:
+      0 0,
+      50% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-nav,
+  .side-nav.open {
+    animation: none;
   }
 }

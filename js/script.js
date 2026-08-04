@@ -319,15 +319,47 @@ document.addEventListener("DOMContentLoaded", () => {
     heroShine.setAttribute("aria-hidden", "true");
     heroBtn.appendChild(heroShine);
   }
-  const initialTop = heroBtn.getBoundingClientRect().top + window.scrollY;
-  function toggleHeroBtnFixed() {
-    if (window.scrollY >= initialTop) heroBtn.classList.add("hero-btn-fixed");
-    else heroBtn.classList.remove("hero-btn-fixed");
-  }
-  window.addEventListener("scroll", toggleHeroBtnFixed);
-  toggleHeroBtnFixed();
-
   const bookingGroup = document.querySelector(".hero-booking-group");
+
+  // Раньше здесь один раз при DOMContentLoaded считался пиксельный порог
+  // (через getBoundingClientRect/offsetTop) и потом на каждый scroll
+  // сравнивался с window.scrollY. Проблема такого подхода: число считается
+  // один раз, а раскладка после этого ещё может измениться (скрытие
+  // прелоадера, transform на #page, догрузка шрифтов/картинок) — порог
+  // сбивается, и класс перестаёт появляться до перезагрузки страницы.
+  //
+  // IntersectionObserver ничего не запоминает — он следит за реальным
+  // положением элемента-метки в реальном времени, поэтому не зависит от
+  // того, когда именно завершилась остальная раскладка страницы.
+  const heroBtnSentinel = document.createElement("span");
+  heroBtnSentinel.setAttribute("aria-hidden", "true");
+  heroBtnSentinel.style.cssText =
+    "display:block;width:1px;height:1px;pointer-events:none;visibility:hidden;";
+  if (bookingGroup && bookingGroup.parentElement) {
+    bookingGroup.parentElement.insertBefore(heroBtnSentinel, bookingGroup);
+  }
+
+  function setHeroBtnFixed(isFixed) {
+    heroBtn.classList.toggle("hero-btn-fixed", isFixed);
+  }
+
+  if (heroBtnSentinel.parentElement && "IntersectionObserver" in window) {
+    const fixedObserver = new IntersectionObserver(
+      ([entry]) => {
+        setHeroBtnFixed(entry.boundingClientRect.top < 0);
+      },
+      { threshold: 0 },
+    );
+    fixedObserver.observe(heroBtnSentinel);
+  } else {
+    // Фолбэк для очень старых браузеров без IntersectionObserver
+    function toggleHeroBtnFixed() {
+      const ref = heroBtnSentinel.parentElement ? heroBtnSentinel : heroBtn;
+      setHeroBtnFixed(ref.getBoundingClientRect().top < 0);
+    }
+    window.addEventListener("scroll", toggleHeroBtnFixed, { passive: true });
+    toggleHeroBtnFixed();
+  }
   if (bookingGroup) {
     function updateFixedClass() {
       bookingGroup.classList.toggle(
@@ -1373,3 +1405,209 @@ document.addEventListener("click", function (e) {
     mobileNavToggle?.classList.remove("is-active");
   }
 });
+
+/* ═══════════ Custom page scrollbar ═══════════ */
+(function () {
+  function initCustomPageScrollbar() {
+    if (document.documentElement.dataset.customPageScrollbar) return;
+
+    document.documentElement.dataset.customPageScrollbar = "1";
+    document.documentElement.classList.add("custom-scroll");
+
+    const scrollbar = document.createElement("div");
+    scrollbar.className = "page-scrollbar";
+    scrollbar.setAttribute("aria-hidden", "true");
+
+    const thumb = document.createElement("div");
+    thumb.className = "page-scrollbar-thumb";
+
+    scrollbar.appendChild(thumb);
+    document.body.appendChild(scrollbar);
+
+    let thumbHeight = 0;
+    let maxTop = 0;
+
+    let dragging = false;
+    let dragStartY = 0;
+    let dragStartScroll = 0;
+
+    let ticking = false;
+
+    function getScrollMetrics() {
+      const doc = document.documentElement;
+      const body = document.body;
+
+      const scrollTop = Math.max(
+        window.pageYOffset || 0,
+        doc ? doc.scrollTop : 0,
+        body ? body.scrollTop : 0,
+      );
+
+      const clientHeight = window.innerHeight || (doc ? doc.clientHeight : 0);
+
+      const scrollHeight = Math.max(
+        doc ? doc.scrollHeight : 0,
+        body ? body.scrollHeight : 0,
+      );
+
+      return { scrollTop, clientHeight, scrollHeight };
+    }
+
+    function updateScrollbar() {
+      const { scrollTop, clientHeight, scrollHeight } = getScrollMetrics();
+      const scrollMax = scrollHeight - clientHeight;
+
+      if (scrollMax <= 0) {
+        scrollbar.style.display = "none";
+        return;
+      }
+
+      scrollbar.style.display = "block";
+
+      thumbHeight = Math.max(48, (clientHeight * clientHeight) / scrollHeight);
+
+      maxTop = clientHeight - thumbHeight;
+
+      thumb.style.height = thumbHeight + "px";
+
+      const progress = scrollTop / scrollMax;
+
+      thumb.style.transform = `translateY(${progress * maxTop}px)`;
+    }
+
+    function scheduleUpdate() {
+      if (ticking) return;
+
+      ticking = true;
+
+      requestAnimationFrame(() => {
+        updateScrollbar();
+        ticking = false;
+      });
+    }
+
+    /*
+      capture: true важен, чтобы ловить scroll даже если он
+      происходит не на window, а на document/body.
+    */
+    document.addEventListener("scroll", scheduleUpdate, {
+      passive: true,
+      capture: true,
+    });
+
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("orientationchange", scheduleUpdate);
+    window.addEventListener("load", scheduleUpdate);
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(scheduleUpdate);
+    }
+
+    if ("ResizeObserver" in window) {
+      const resizeObserver = new ResizeObserver(scheduleUpdate);
+      resizeObserver.observe(document.body);
+      resizeObserver.observe(document.documentElement);
+    }
+
+    /*
+      Так как у вас есть прелоадер и динамический контент,
+      обновляем расчёт после возможных изменений layout.
+    */
+    setTimeout(scheduleUpdate, 2300);
+    setTimeout(scheduleUpdate, 3200);
+
+    updateScrollbar();
+
+    /* Клик по пустому треку */
+    scrollbar.addEventListener("pointerdown", (e) => {
+      if (e.target !== scrollbar) return;
+
+      const rect = scrollbar.getBoundingClientRect();
+      const { clientHeight, scrollHeight } = getScrollMetrics();
+      const scrollMax = scrollHeight - clientHeight;
+
+      if (scrollMax <= 0 || maxTop <= 0) return;
+
+      const clickTop = e.clientY - rect.top - thumbHeight / 2;
+      const ratio = Math.max(0, Math.min(1, clickTop / maxTop));
+
+      window.scrollTo({
+        top: ratio * scrollMax,
+        behavior: "smooth",
+      });
+
+      scheduleUpdate();
+    });
+
+    /* Начало перетаскивания ползунка */
+    thumb.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+
+      dragging = true;
+      dragStartY = e.clientY;
+      dragStartScroll = getScrollMetrics().scrollTop;
+
+      scrollbar.classList.add("is-dragging");
+
+      try {
+        thumb.setPointerCapture(e.pointerId);
+      } catch (err) {}
+
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    /* Движение ползунка */
+    function onDragMove(e) {
+      if (!dragging) return;
+
+      const delta = e.clientY - dragStartY;
+      const { scrollHeight, clientHeight } = getScrollMetrics();
+      const scrollMax = scrollHeight - clientHeight;
+
+      if (maxTop <= 0 || scrollMax <= 0) return;
+
+      const target = dragStartScroll + (delta / maxTop) * scrollMax;
+
+      /*
+        behavior: "auto" обязательно.
+        Иначе из-за html { scroll-behavior: smooth; }
+        ползунок будет двигаться с анимацией и "лагать".
+      */
+      window.scrollTo({
+        top: target,
+        behavior: "auto",
+      });
+
+      scheduleUpdate();
+    }
+
+    function endDrag(e) {
+      if (!dragging) return;
+
+      dragging = false;
+      scrollbar.classList.remove("is-dragging");
+
+      try {
+        thumb.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    }
+
+    thumb.addEventListener("pointermove", onDragMove);
+
+    /*
+      Фолбэк на window: если pointer capture по какой-то причине
+      не сработал, перетаскивание всё равно продолжится.
+    */
+    window.addEventListener("pointermove", onDragMove, { passive: true });
+    window.addEventListener("pointerup", endDrag, { passive: true });
+    window.addEventListener("pointercancel", endDrag, { passive: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initCustomPageScrollbar);
+  } else {
+    initCustomPageScrollbar();
+  }
+})();
