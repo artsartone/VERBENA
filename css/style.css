@@ -75,17 +75,28 @@ nav {
   color: #8e9165;
 }
 
-html,
-body {
-  height: 100vh;
-  height: 100dvh;
+html {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
-html,
 body {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+html {
   background: #bac4a2;
   overflow-x: hidden;
   color: #293222;
+}
+
+body {
+  background: #bac4a2;
+  color: #293222;
+  /* overflow-x НЕ ставим — это ломает auto-hide браузера */
 }
 
 .hero {
@@ -3619,7 +3630,7 @@ html {
 
 /* ─── Футер ─── */
 .site-footer {
-  background:  #bac4a2;
+  background: #bac4a2;
   padding: 35px 20px 25px;
   margin-top: 0;
 }
@@ -4300,7 +4311,6 @@ html {
     transform: translateY(0) scale(1) !important;
   }
 }
-
 
 @media (max-width: 700px) {
   .mobile-nav-toggle {
