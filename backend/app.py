@@ -1455,16 +1455,84 @@ _ycache_key_locks = {}
 _ycache_key_locks_lock = threading.Lock()
 _YCACHE_TTL = 300  # 5 минут
 
-# Максимум одновременных запросов к YClients при расчёте free-slots.
-# Раньше было 10 — на проде (больше услуг/мастеров, чем в тесте) такой
-# всплеск параллельных запросов, судя по всему, приводил к мягкому
-# rate-limit'у на стороне YClients: без HTTP-ошибки, просто пустой
-# ответ. Понизили и развели по времени "раунды" запросов (см.
-# _calculate_free_slots) — цена в скорости холодного расчёта, но
-# именно холодные расчёты и не должны происходить синхронно на живом
-# запросе пользователя (см. фоновый прогрев кэша ниже).
-_YC_MAX_WORKERS = 6
-_YC_ROUND_DELAY = 0.15  # секунд паузы между раундами запросов
+# _YC_MAX_WORKERS раньше задавал размер пула потоков для параллельных
+# запросов к YClients (по одному на мастера) при расчёте free-slots.
+# С переходом на GET .../staff/schedule (см. _calculate_free_slots) расчёт
+# на дату больше не делает запрос на каждого мастера — вся занятость и
+# рабочие окна на диапазон дат приходят одним запросом, поэтому пул
+# потоков здесь не нужен. Оставлена только пауза между "раундами" прогрева
+# соседних дат (см. _prewarm_free_slots) — с ней прогрев не делает
+# несколько запросов к YClients единым всплеском, даже если что-то ещё
+# обращается к API параллельно.
+
+
+@app.route("/api/public/free-slots", methods=["GET"])
+def public_free_slots():
+    """Свободные слоты на дату через book_times для каждого мастера."""
+    date_str = request.args.get("date", "")
+    if not date_str:
+        return jsonify({"error": "date required"}), 400
+
+    def fetch():
+        errors = []
+        # 1. Получаем список всех мастеров, доступных для онлайн-записи (без фильтрации по услугам)
+        # Это вызывает GET /staff/{id}/booking_settings и смотрит record=1
+        staff_list = yc.get_staff_for_booking(
+            error_flag=errors)  # <--- УБРАЛИ service_ids
+
+        if errors or not staff_list:
+            # Если не удалось получить список мастеров, возвращаем пустой результат
+            return {"staff": [], "date": date_str}
+
+        # 2. Теперь для каждого мастера из списка запрашиваем его свободные слоты на дату
+        #    Используем get_available_times с service_ids=None, чтобы получить общие окна
+        #
+        #    Запросы идут ПАРАЛЛЕЛЬНО (пул потоков), а не последовательно —
+        #    иначе при N мастерах ответ ждёт N последовательных round-trip'ов
+        #    к YClients (тормозило именно на этом, а не на самом API).
+        #    Общий лимит запросов/сек к YClients (_rate_limit_wait в
+        #    yclients_api.py) потокобезопасен и применяется глобально для
+        #    всего процесса, так что параллелить здесь безопасно — лимит
+        #    всё равно не будет превышен, просто запросы не будут ждать
+        #    друг друга по сети сверх необходимого.
+        result = []
+        max_workers = min(8, len(staff_list)) or 1
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_to_staff = {
+                pool.submit(
+                    yc.get_available_times,
+                    service_id=None,  # <--- ВАЖНО: не передаём ID услуг
+                    staff_id=str(staff_member.get("id")),
+                    date_str=date_str,
+                    error_flag=errors,
+                ): staff_member
+                for staff_member in staff_list
+            }
+            for future in future_to_staff:
+                staff_member = future_to_staff[future]
+                staff_id = str(staff_member.get("id"))
+                staff_name = staff_member.get("name", "Мастер")
+                try:
+                    times = future.result()
+                except Exception as e:
+                    logger.error(f"free-slots: сбой запроса для мастера {staff_id}: {e}")
+                    times = []
+
+                if times:  # Если у мастера есть свободные слоты
+                    result.append({
+                        "id": staff_id,
+                        "name": staff_name,
+                        "free_slots": [{
+                            "time": t
+                        } for t in times]
+                    })
+
+        return {"staff": result, "date": date_str}
+
+    # Используем кэширование
+    cache_key = f"public_free_slots_{date_str}"
+    data = get_cached(cache_key, fetch, ttl=300)
+    return jsonify(data)
 
 
 def _get_key_lock(key):
@@ -1594,92 +1662,13 @@ def get_cached_dynamic(key, fetch_func, ttl_success=None, ttl_error=20):
 # без признаков сбоя (см. эвристики внутри _calculate_free_slots), и
 # если новый расчёт выглядит подозрительно — отдаём пользователю его,
 # а не свежую "пустоту", пока не подтвердится, что она настоящая.
-_last_good_slots = {}  # date_str -> {'data': [...], 'timestamp': float}
-_last_good_slots_lock = threading.Lock()
-_LAST_GOOD_MAX_AGE = 6 * 3600  # не подставляем результат старше 6 часов
 
 
 def _remove_booked_slot_from_cache(date_str, staff_id, time_str):
-    """Вызывается сразу после того, как YClients подтвердил создание
-    записи (см. create_booking → _send_to_yclients). Вычёркивает именно
-    это время у именно этого мастера из уже закэшированного результата
-    /api/public/free-slots на эту дату.
-
-    Специально НЕ сбрасываем весь кэш на дату целиком: следующий
-    посетитель страницы попал бы на холодный пересчёт со всплеском
-    запросов к YClients — то есть вернул бы ровно ту проблему throttling,
-    которую и чинили в _calculate_free_slots. Точечная правка кэша даёт
-    актуальную картину немедленно, без единого лишнего запроса к API.
-
-    Правим и основной кэш (_ycache), и last-good подстраховку
-    (_last_good_slots) — иначе при следующем подозрительном
-    (had_errors) расчёте эвристика в _get_free_slots_safe подставит
-    старый fallback, где это время всё ещё "свободно"."""
-    if not staff_id or not time_str:
-        return
-    staff_id = str(staff_id)
-    cache_key = f"public_free_slots_{date_str}"
-
-    def _strip(staff_list):
-        if not staff_list:
-            return
-        for entry in staff_list:
-            if str(entry.get("id")) != staff_id:
-                continue
-            entry["free_slots"] = [
-                s for s in entry.get("free_slots", [])
-                if (s.get("time") if isinstance(s, dict) else s) != time_str
-            ]
-
     with _ycache_lock:
-        entry = _ycache.get(cache_key)
-        if entry:
-            _strip(entry.get("data"))
-
-    with _last_good_slots_lock:
-        fallback = _last_good_slots.get(date_str)
-        if fallback:
-            _strip(fallback.get("data"))
-
-
-def _get_free_slots_safe(date_str, target_date):
-    """Считает free-slots на дату с защитой от "тихого" throttling
-    YClients: если расчёт помечен как подозрительный (had_errors) —
-    подменяем результат последним надёжным, если он не слишком старый,
-    вместо показа ложного "всё занято". Возвращает (result, had_errors)
-    как и _calculate_free_slots — had_errors=True сохраняется даже при
-    подмене, чтобы кэш всё равно взял короткий TTL и попробовал снова
-    в следующий раз.
-    """
-    result, had_errors = _calculate_free_slots(target_date)
-
-    if not had_errors:
-        # Надёжный результат (даже если пустой — значит, реально всё
-        # занято/выходной) — запоминаем как последний известный хороший.
-        with _last_good_slots_lock:
-            _last_good_slots[date_str] = {
-                'data': result,
-                'timestamp': datetime.now().timestamp(),
-            }
-        return result, False
-
-    # Расчёт подозрительный — пробуем подстраховаться прошлым хорошим
-    with _last_good_slots_lock:
-        fallback = _last_good_slots.get(date_str)
-    if fallback is not None:
-        age = datetime.now().timestamp() - fallback['timestamp']
-        if age < _LAST_GOOD_MAX_AGE:
-            logger.warning(
-                f"_get_free_slots_safe: расчёт для {date_str} подозрительный, "
-                f"подставляем последний надёжный результат ({int(age)}с назад) "
-                f"вместо него")
-            return fallback['data'], True
-
-    # Подстраховки нет или она слишком старая — отдаём то, что есть
-    logger.warning(
-        f"_get_free_slots_safe: расчёт для {date_str} подозрительный, "
-        f"надёжной подстраховки нет — отдаём как есть")
-    return result, True
+        key = f"public_free_slots_{date_str}"
+        if key in _ycache:
+            del _ycache[key]
 
 
 # ──────────── ФОНОВЫЙ ПРОГРЕВ КЭША FREE-SLOTS ────────────
@@ -1689,42 +1678,15 @@ def _get_free_slots_safe(date_str, target_date):
 # ближайших дней, обновляя его заметно чаще, чем истекает TTL, — так что
 # обычные посетители почти всегда просто читают готовый кэш, а не
 # запускают синхронный расчёт с всплеском запросов к YClients.
-_SLOTS_PREWARM_WINDOW_DAYS = 5
-_SLOTS_PREWARM_INTERVAL = 180  # секунд между прогревами
 
-
-def _prewarm_free_slots():
-    today = datetime.now().date()
-    for offset in range(_SLOTS_PREWARM_WINDOW_DAYS):
-        target_date = today + timedelta(days=offset)
-        date_str = target_date.isoformat()
-        cache_key = f"public_free_slots_{date_str}"
-        try:
-            get_cached_dynamic(
-                cache_key,
-                lambda d=date_str, t=target_date: _get_free_slots_safe(d, t),
-                ttl_success=300,
-                ttl_error=45)
-        except Exception as e:
-            logger.error(f"Прогрев free-slots для {date_str} не удался: {e}")
-        # Пауза между датами — тот же принцип: не бить по YClients
-        # запросами на несколько дней подряд одним всплеском.
-        time.sleep(_YC_ROUND_DELAY * 2)
-
-
-def _run_slots_prewarmer():
-    # Небольшая начальная пауза, чтобы не стартовать прогрев одновременно
-    # с остальной инициализацией приложения.
-    threading.Event().wait(5)
-    while True:
-        try:
-            _prewarm_free_slots()
-        except Exception as e:
-            logger.error(f"Ошибка фонового прогрева free-slots: {e}")
-        threading.Event().wait(_SLOTS_PREWARM_INTERVAL)
-
-
-threading.Thread(target=_run_slots_prewarmer, daemon=True).start()
+# Шаг, с которым генерируются старты свободных окон внутри рабочего
+# времени мастера за вычетом busy_intervals (см. _calculate_free_slots).
+# GET .../staff/schedule не квантует рабочие окна по шагу записи
+# конкретной услуги (в отличие от book_times) — он просто отдаёт
+# "рабочие часы минус уже существующие записи". Поэтому шаг для превью
+# задаём сами; 30 минут — разумный компромисс между полезностью
+# превью и тем, чтобы не предлагать старты, которые реально не влезут
+# под большинство услуг сети.
 
 
 # ──────────── СПИСОК УСЛУГ ────────────
@@ -1853,15 +1815,20 @@ def yclients_staff():
 
 @app.route("/api/yclients/available-times", methods=["GET"])
 def yclients_available_times():
-    """Fetch available times from YClients.
-    Required: ?service_id=XXX &staff_id=XXX &date=DD.MM.YYYY or YYYY-MM-DD
-    Uses /book_times/{company_id}/{staff_id}/{date} endpoint.
-    """
+    """Фронтенд запрашивает слоты при клике на конкретный день."""
     service_id = request.args.get("service_id")
     staff_id = request.args.get("staff_id")
-    date = to_iso_date(request.args.get("date", ""))
+    date = request.args.get("date", "")
+
     if not service_id or not staff_id or not date:
         return jsonify({"error": "service_id, staff_id, date required"}), 400
+
+    # Приводим дату к ISO формату (YYYY-MM-DD), если пришла в ДД.ММ.ГГГГ
+    if "." in date:
+        parts = date.split(".")
+        if len(parts) == 3:
+            date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
     times = yc.get_available_times(service_id, staff_id, date)
     return jsonify(times)
 
@@ -1882,22 +1849,121 @@ def yclients_book_times():
 
 @app.route("/api/yclients/available-dates", methods=["GET"])
 def yclients_available_dates():
-    """Fetch available dates from YClients.
-    Required: ?service_id=XXX &staff_id=XXX
-    Optional:  &month=8 &year=2026
-    """
+    """Фронтенд запрашивает доступные дни для подсветки в календаре."""
     service_id = request.args.get("service_id")
     staff_id = request.args.get("staff_id")
     month = request.args.get("month")
     year = request.args.get("year")
-    if not service_id or not staff_id:
-        return jsonify({"error": "service_id, staff_id required"}), 400
+
+    if not service_id:
+        return jsonify({"error": "service_id required"}), 400
+
     dates = yc.get_available_dates(
         service_id,
-        staff_id,
+        staff_id or None,
         month=int(month) if month else None,
         year=int(year) if year else None,
     )
+    return jsonify(dates)
+
+
+def _extract_available_dates_from_schedule(schedule_data):
+    """
+    Анализирует ответ от /staff/schedule (предполагается список словарей)
+    и возвращает множество дат, в которые хотя бы у одного мастера есть
+    30-минутные интервалы, ограниченные графиком и занятостью.
+    """
+    available_dates = set()
+
+    # schedule_data предполагается как список: [{"id": "...", "days": {...}}, ...]
+    if not isinstance(schedule_data, list):
+        # Если пришёл не список, логично завершить работу
+        print(
+            f"WARNING: Expected schedule_data to be a list, got {type(schedule_data)}"
+        )
+        return []
+
+    for staff_entry in schedule_data:
+        if not isinstance(staff_entry, dict) or "days" not in staff_entry:
+            continue
+
+        staff_id = staff_entry.get("id")
+        days = staff_entry.get("days", {})
+
+        if not isinstance(days, dict):
+            continue
+
+        for date_str, day_info in days.items():
+            if not isinstance(day_info, dict):
+                continue
+
+            working_start = day_info.get("working_start_at")  # "09:00"
+            working_end = day_info.get("working_end_at")  # "19:00"
+            busy_intervals = day_info.get("busy", [])
+
+            if not working_start or not working_end:
+                continue  # Не работал в этот день
+
+            # Преобразуем время начала/конца в минуты от полуночи
+            try:
+                start_time = datetime.strptime(working_start, "%H:%M")
+                end_time = datetime.strptime(working_end, "%H:%M")
+                work_start_mins = start_time.hour * 60 + start_time.minute
+                work_end_mins = end_time.hour * 60 + end_time.minute
+            except ValueError:
+                continue  # Невалидное время
+
+            # Сортируем занятые интервалы
+            sorted_busy = sorted(busy_intervals,
+                                 key=lambda x: x.get('start', '23:59'))
+            current_start = work_start_mins
+
+            has_free_time = False
+            for interval in sorted_busy:
+                # Преобразуем занятые интервалы в минуты
+                try:
+                    start_t = datetime.strptime(interval['start'], "%H:%M")
+                    end_t = datetime.strptime(interval['end'], "%H:%M")
+                    busy_start_mins = start_t.hour * 60 + start_t.minute
+                    busy_end_mins = end_t.hour * 60 + end_t.minute
+                except (ValueError, KeyError):
+                    continue  # Пропускаем невалидный интервал
+
+                # Есть ли место между концом предыдущего и началом текущего?
+                if current_start < busy_start_mins:
+                    if busy_start_mins - current_start >= 30:  # Минимум 30 мин
+                        has_free_time = True
+                        break  # Нашли хотя бы одно окно
+                current_start = max(current_start, busy_end_mins)
+
+            # Проверяем остаток времени после последнего занятого интервала
+            if not has_free_time and current_start < work_end_mins:
+                if work_end_mins - current_start >= 30:  # Минимум 30 мин
+                    has_free_time = True
+
+            if has_free_time:
+                available_dates.add(date_str)
+
+    return list(available_dates)
+
+
+@app.route("/api/public/available-dates", methods=["GET"])
+def public_available_dates():
+    """
+    ШАГ 1: Календарь на главной странице.
+    Делает ОДИН запрос к book_dates БЕЗ фильтра по услугам — так YClients
+    возвращает даты, на которые доступна хотя бы одна услуга. Раньше сюда
+    передавался список ID вообще всех активных услуг салона, но
+    service_ids[] в book_dates — это фильтр "пересечение доступности всех
+    перечисленных услуг сразу", а не "любая из них", поэтому с десятками
+    услуг результат почти всегда был пустым.
+    """
+    month = request.args.get("month")
+    year = request.args.get("year")
+
+    dates = yc.get_available_dates(service_id=None,
+                                   month=int(month) if month else None,
+                                   year=int(year) if year else None)
     return jsonify(dates)
 
 
@@ -2433,190 +2499,6 @@ def _slots_to_intervals(slots):
     return intervals
 
 
-def _calculate_free_slots(target_date):
-    """
-    Рассчитывает свободные слоты для всех мастеров на указанную дату.
-
-    Возвращает (result, had_errors). had_errors=True означает, что хотя
-    бы один из запросов к YClients не удался даже после ретраев — то есть
-    пустой или неполный result может не отражать реальную картину, и
-    кэшировать его как "точно всё занято" на обычный TTL не стоит
-    (см. get_cached_dynamic).
-
-    ИСТОРИЯ ИЗМЕНЕНИЙ (важно, чтобы не откатить обратно на старую схему):
-    Раньше здесь были ТРИ раунда запросов к виджетным ручкам YClients
-    (book_staff → book_dates → book_times), причём раунды 2 и 3 шли по
-    ОТДЕЛЬНОМУ запросу на каждую пару (услуга, мастер) — при 10 услугах
-    и 3-5 мастерах на услугу это 40-60+ запросов на расчёт ОДНОЙ даты.
-    YClients документирует жёсткий лимит 3-5 запросов/сек на IP, и при
-    таком всплеске он не всегда отвечает HTTP-ошибкой — вместо этого
-    "тихо" отдаёт формально валидные (200 OK), но пустые ответы (мягкий
-    throttling). Обычный error_flag/retry по статус-коду это не ловит,
-    отсюда и ложные "нет свободных окон" на дату, при том что соседние
-    (уже закэшированные) даты в порядке.
-
-    Теперь вместо book_dates/book_times по каждой паре (услуга, мастер)
-    используется GET /book_times/{company_id}/{staff_id}/{date} БЕЗ
-    фильтра по услуге (service_ids[] необязателен) — один запрос на
-    мастера вместо запроса на каждую пару. Это та же ручка, что и форма
-    записи (см. /api/yclients/available-times), поэтому времена приходят
-    уже корректно квантованными по шагу записи мастера — в отличие от
-    сырой 5-минутной занятости, отдаваемой /timetable/seances, где не
-    каждый "свободный" тик на самом деле является допустимым стартом
-    записи (см. настройку "доступное время для онлайн-записи" в
-    YClients). Список бронируемых мастеров (раньше — раунд с book_staff
-    по каждой услуге отдельно) тоже получаем ОДНИМ запросом со всеми
-    service_ids сразу и кэшируем отдельно от конкретной даты, т.к. он от
-    даты не зависит и раньше пересчитывался заново на каждую из 5
-    прогреваемых дат.
-    """
-    errors = []  # общий флаг ошибок на весь расчёт; list — чтобы можно
-    # было передавать как error_flag в функции yclients_api и просто
-    # append'ить из разных потоков (list.append атомарен под GIL)
-
-    _t_start = time.time()
-
-    # 1. Получаем ПОЛНЫЙ каталог услуг (GET /company/{id}/services/, та же
-    # ручка, что и обычный "услуги" в CRM) — а НЕ мастеров через book_staff.
-    # --- НАЧАЛО ИЗМЕНЕНИЯ (v2) ---
-    # Раньше здесь получали bookable-услуги (book_services) и передавали их
-    # id одним запросом в book_staff — это должно было устранить 422 (см.
-    # историю ниже), но на практике book_staff ведёт себя непредсказуемо
-    # даже с отфильтрованными id: на некоторых аккаунтах всё ещё 422 на
-    # весь список сразу, а по отдельному СКРЫТОМУ id — наоборот, тихо
-    # игнорирует фильтр и отдаёт ВСЕХ мастеров компании, как будто
-    # service_ids[] не передан вовсе (т.е. книга book_staff в принципе не
-    # надёжна как источник списка мастеров).
-    #
-    # Вместо этого мастеров берём напрямую из ответа /services/: у каждой
-    # услуги там уже есть встроенный список "staff": [...]. Никакой
-    # отдельной валидации id здесь нет — это просто разбор уже пришедшего
-    # JSON, 422 здесь неоткуда взяться. Учитываем только услуги с
-    # active == 1 (реальный признак доступности услуги в YClients), берём
-    # уникальных мастеров по всем таким услугам (см. yc.extract_active_staff).
-    #
-    # СТАРАЯ ИСТОРИЯ (сохранено для контекста): раньше здесь был
-    # get_services() без bookable-фильтра, и передача его id в book_staff
-    # приводила к HTTP 422 "Unprocessable Content" — он валидирует ВЕСЬ
-    # переданный service_ids[] и отклоняет целиком запрос при наличии
-    # среди них хотя бы одного непригодного id, без указания, какой именно
-    # (см. историю бага, 28 услуг в каталоге → 422). Промежуточный фикс —
-    # переход на book_services (bookable-подмножество) — не полностью решил
-    # проблему (см. выше), поэтому book_staff здесь больше не используется.
-    # --- КОНЕЦ ИЗМЕНЕНИЯ (v2) ---
-    def _fetch_services_for_slots():
-        local_err = []
-        data = yc.get_services(error_flag=local_err)
-        return data, bool(local_err)
-
-    try:
-        all_services, services_had_err = get_cached_dynamic(
-            'services_list_for_slots',
-            _fetch_services_for_slots,
-            ttl_success=600,
-            ttl_error=45)
-        if services_had_err:
-            errors.append(True)
-    except Exception as e:
-        logger.error(f"Failed to get services from YClients: {e}")
-        return [], True
-
-    if not all_services:
-        return [], bool(errors)
-
-    active_staff = yc.extract_active_staff(all_services, active_only=True)
-
-    # 2. Мастера, доступные хоть по одной активной услуге — уже посчитаны
-    # выше из services без единого обращения к book_staff.
-    booking_staff, staff_had_err = active_staff, False
-    staff_map = {}  # staff_id -> {"name": ..., "slots": set()}
-    for staff in booking_staff or []:
-        staff_id = str(staff.get("id", ""))
-        if staff_id and staff_id not in staff_map:
-            staff_map[staff_id] = {
-                "name": staff.get("name", "Мастер"),
-                "slots": set(),
-            }
-
-    active_services_count = sum(1 for s in all_services
-                                if s.get("active") == 1)
-    logger.info(
-        f"_calculate_free_slots({target_date}): подготовка ({active_services_count} "
-        f"активных услуг → {len(staff_map)} мастеров) заняла "
-        f"{time.time() - _t_start:.1f}с")
-
-    if not staff_map:
-        return [], bool(errors)
-
-    # 3. Свободные времена каждого мастера на target_date — ОДИН запрос
-    # на мастера через book_times БЕЗ фильтра по услуге (та же ручка, что
-    # использует форма записи — см. /api/yclients/available-times). Не
-    # нужна ни комбинаторика по услугам, ни отдельный раунд "доступные
-    # даты в месяце": book_times сам возвращает пусто, если у мастера в
-    # этот день нет графика/окон.
-    def fetch_times(staff_id):
-        local_err = []
-        try:
-            slots = yc.get_available_times(None,
-                                           staff_id,
-                                           target_date.isoformat(),
-                                           error_flag=local_err)
-        except Exception as e:
-            logger.warning(
-                f"Failed to get available times for staff {staff_id}: {e}")
-            local_err.append(True)
-            slots = []
-        return staff_id, slots, bool(local_err)
-
-    with ThreadPoolExecutor(max_workers=_YC_MAX_WORKERS) as executor:
-        for staff_id, slots, had_err in executor.map(fetch_times,
-                                                     staff_map.keys()):
-            if had_err:
-                errors.append(True)
-                continue
-            for item in slots or []:
-                if isinstance(item, str):
-                    staff_map[staff_id]["slots"].add(item)
-                elif isinstance(item, dict) and item.get("available", True):
-                    t = item.get("time")
-                    if t:
-                        staff_map[staff_id]["slots"].add(t)
-
-    if staff_map and not errors and not any(data["slots"]
-                                            for data in staff_map.values()):
-        # Подозрительный сигнал БЕЗ единой HTTP-ошибки: у нас есть
-        # бронируемые мастера, но ни у одного из них ни одного свободного
-        # слота за весь день. Разово у одного мастера — нормально
-        # (выходной), но одновременно у ВСЕХ мастеров салона — тот же
-        # паттерн "мягкого" throttling, что был и в старой схеме.
-        logger.warning(
-            f"_calculate_free_slots: ни один из {len(staff_map)} мастеров "
-            f"не показал ни одного свободного слота на {target_date} — "
-            f"похоже на мягкий throttling YClients, а не на реальное "
-            f"отсутствие доступности. Помечаем расчёт как подозрительный.")
-        errors.append(True)
-
-    # 4. Формируем результат — каждый реальный слот из YClients как есть.
-    result = []
-    for staff_id, data in staff_map.items():
-        slots = sorted(data["slots"])
-        if slots:
-            result.append({
-                "id": staff_id,
-                "name": data["name"],
-                "free_slots": [{
-                    "time": t
-                } for t in slots]
-            })
-
-    logger.info(
-        f"_calculate_free_slots({target_date}): итого весь расчёт занял "
-        f"{time.time() - _t_start:.1f}с, had_errors={bool(errors)}, "
-        f"мастеров с окнами={len(result)}/{len(staff_map)}")
-
-    return result, bool(errors)
-
-
 @app.route("/schedule")
 def public_schedule_page():
     """Публичная страница графика работы и свободных слотов."""
@@ -2624,36 +2506,6 @@ def public_schedule_page():
     if os.path.exists(schedule_html):
         return send_from_directory(app.template_folder, "schedule.html")
     return jsonify({"error": "schedule.html не найден"}), 404
-
-
-@app.route("/api/public/free-slots", methods=["GET"])
-def public_free_slots():
-    """
-    Публичный API. Возвращает ТОЛЬКО свободные окна мастеров.
-    Использует РЕАЛЬНЫЕ данные из YClients (как форма записи).
-    Кэширует результат на 5 минут.
-    """
-    date_str = request.args.get("date", datetime.now().date().isoformat())
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
-
-    # Кэшируем на 5 минут для снижения нагрузки на YClients API.
-    # _get_free_slots_safe уже прогрет фоновым потоком для ближайших
-    # дней (см. _run_slots_prewarmer) — обычно этот вызов просто читает
-    # готовый кэш. Если расчёт всё же подозрительный (см. эвристики и
-    # error_flag внутри _calculate_free_slots) — подставляется последний
-    # надёжный результат, а кэш всё равно берёт короткий TTL (45с), чтобы
-    # скоро попробовать снова, а не залипнуть на все 5 минут.
-    cache_key = f"public_free_slots_{date_str}"
-    cached, had_errors = get_cached_dynamic(
-        cache_key,
-        lambda: _get_free_slots_safe(date_str, target_date),
-        ttl_success=300,
-        ttl_error=45)
-
-    return jsonify({"staff": cached, "date": target_date.isoformat()})
 
 
 if __name__ == "__main__":

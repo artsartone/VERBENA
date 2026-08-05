@@ -55,28 +55,94 @@ class BookingService:
             logger.warning(f"Ошибка загрузки мастеров: {e}")
         return []
 
+    def _fetch_available_dates_for_month(
+        self,
+        service_id: str,
+        staff_id: Optional[str],
+        year: int,
+        month: int
+    ) -> Optional[set]:
+        """Один вызов /api/yclients/available-dates за конкретный месяц.
+
+        Возвращает set ISO-дат ("YYYY-MM-DD") со свободными слотами,
+        либо None, если запрос не удался — этим None (в отличие от
+        пустого set) вызывающий код должен трактовать как «фильтровать
+        нельзя», чтобы случайно не скрыть рабочие дни из-за сбоя API.
+        """
+        params = {"service_id": service_id, "month": month, "year": year}
+        if staff_id and str(staff_id) != "0":
+            params["staff_id"] = staff_id
+        try:
+            resp = requests.get(
+                f"{self.api_base}/api/yclients/available-dates",
+                params=params,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return {str(d) for d in data}
+            logger.warning(
+                f"available-dates: HTTP {resp.status_code} - {resp.text[:200]}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении доступных дат: {e}")
+        return None
+
     def load_available_dates(
         self,
         service_id: str,
-        staff_id: str,
+        staff_id: Optional[str] = None,
         days: int = 14
-    ) -> List[str]:
+    ) -> Optional[List[str]]:
         """
-        Получить список доступных дат.
+        Получить список доступных дат — только тех, на которые есть хотя
+        бы один свободный слот (через /api/yclients/available-dates,
+        та же логика, что и в Telegram-боте).
 
         Args:
             service_id: ID услуги YClients
-            staff_id: ID мастера YClients
+            staff_id: ID мастера YClients (можно не передавать — тогда
+                учитываются слоты по всем мастерам услуги)
             days: количество дней вперед (по умолчанию 14)
 
         Returns:
-            Список дат в формате ДД.ММ.ГГГГ
+            Список дат в формате ДД.ММ.ГГГГ, отфильтрованный по
+            занятости, либо None, если получить данные хотя бы за один
+            месяц из диапазона не удалось (сигнал вызывающему коду не
+            фильтровать и показать даты как раньше).
         """
-        dates = []
         today = date.today()
+        end = today + timedelta(days=days - 1)
+
+        # Собираем все месяцы, которые попадают в диапазон
+        months = []
+        cur = today.replace(day=1)
+        end_month = end.replace(day=1)
+
+        while cur <= end_month:
+            months.append((cur.year, cur.month))
+            if cur.month == 12:
+                cur = cur.replace(year=cur.year + 1, month=1)
+            else:
+                cur = cur.replace(month=cur.month + 1)
+
+        all_dates = set()
+
+        for (y, m) in months:
+            result = self._fetch_available_dates_for_month(
+                service_id, staff_id, y, m)
+
+            if result is None:
+                return None
+
+            all_dates |= result
+
+        dates = []
         for i in range(days):
             d = today + timedelta(days=i)
-            dates.append(d.strftime("%d.%m.%Y"))
+            if d.isoformat() in all_dates:
+                dates.append(d.strftime("%d.%m.%Y"))
+
         return dates
 
     def load_available_times(

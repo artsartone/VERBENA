@@ -373,6 +373,46 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (bookingGroup) {
+    // ─── Определение направления выпадающего меню hero-btn-split ───
+    // На тач-устройствах/мобильных обычное (не фиксированное) меню
+    // раскрывается вниз от кнопки. Здесь решаем, достаточно ли под кнопкой
+    // места на экране, и если нет — разрешаем открываться вверх (класс
+    // "open-up" переворачивает позиционирование в CSS).
+    function updateSplitDirection() {
+      if (!bookingGroup || bookingGroup.classList.contains("has-fixed")) return;
+      const split = bookingGroup.querySelector(".hero-btn-split");
+      if (!split) return;
+
+      const rect = bookingGroup.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const gap = 12; // совпадает с отступом в CSS (100% + 12px)
+      // + небольшой запас, чтобы меню не упиралось в самый край экрана
+      const splitHeight = (split.offsetHeight || 0) + gap + 8;
+
+      // Меню открываем вверх ТОЛЬКО когда снизу не хватает места, а сверху
+      // его больше (или оба варианта тесные — выбираем сторону с бóльшим
+      // запасом). Если снизу достаточно места — как раньше, вниз.
+      const openUp = spaceBelow < splitHeight && spaceAbove > spaceBelow;
+
+      bookingGroup.classList.toggle("open-up", openUp);
+    }
+
+    // Актуальную высоту меню можно гарантированно измерить только когда
+    // оно уже отображено, поэтому пересчитываем и после открытия.
+    function openHeroMenu() {
+      updateSplitDirection();
+      bookingGroup.classList.add("open");
+    }
+
+    // Если меню открыто, а окно изменило размер (поворот экрана и т.п.) —
+    // пересчитываем направление, чтобы меню всегда оставалось на экране.
+    window.addEventListener("resize", () => {
+      if (bookingGroup.classList.contains("open")) {
+        updateSplitDirection();
+      }
+    });
+
     let heroFixedPress = null;
 
     heroBtn.addEventListener(
@@ -408,7 +448,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Клик с клавиатуры (Enter/Space)
       if (e.detail === 0) {
-        bookingGroup.classList.toggle("open");
+        if (bookingGroup.classList.contains("open")) {
+          bookingGroup.classList.remove("open");
+        } else {
+          openHeroMenu();
+        }
         return;
       }
 
@@ -425,7 +469,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // это скролл/жест, а не нажатие на кнопку
       if (distance > 10 || duration > 500) return;
 
-      bookingGroup.classList.toggle("open");
+      if (bookingGroup.classList.contains("open")) {
+        bookingGroup.classList.remove("open");
+      } else {
+        openHeroMenu();
+      }
     });
 
     // Закрытие hero-меню при клике вне его области
@@ -1162,6 +1210,44 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  // ─── Доступные даты для дневного календаря ───
+  // Тут, в отличие от модалки записи, нет конкретной услуги/мастера —
+  // календарь общий для всех мастеров сразу. Готовой ручки-агрегата
+  // "какие дни в месяце свободны хоть у кого-то" в API нет, зато есть
+  // тот же /api/public/free-slots, которым и так пользуется расписание —
+  // дёргаем его по каждому дню месяца (кроме прошедших — они и так
+  // задизейблены) с ограниченной параллельностью. Бэкенд кэширует ответы
+  // на 5 минут, так что повторное открытие календаря в течение этого
+  // времени отвечает быстро.
+  let monthAvailabilityCache = {}; // "YYYY-MM" -> {"YYYY-MM-DD": true} | null
+
+  async function getMonthAvailability(year, month) {
+    const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+    if (monthAvailabilityCache[key]) return monthAvailabilityCache[key];
+
+    try {
+      // Один запрос на весь месяц вместо 30 отдельных
+      const res = await fetch(
+        `/api/public/available-dates?year=${year}&month=${month + 1}`,
+      );
+      if (!res.ok) throw new Error("Network response was not ok");
+      const dates = await res.json();
+
+      const result = {};
+      if (Array.isArray(dates)) {
+        dates.forEach((d) => {
+          result[d] = true; // Помечаем дату как доступную
+        });
+      }
+      monthAvailabilityCache[key] = result;
+      return result;
+    } catch (e) {
+      console.warn("getMonthAvailability failed:", e);
+      monthAvailabilityCache[key] = null;
+      return null;
+    }
+  }
+
   // ─── Календарь для выбора даты ───
   function createScheduleCalendar() {
     if (scheduleCalendar) return scheduleCalendar;
@@ -1199,28 +1285,33 @@ document.addEventListener("DOMContentLoaded", function () {
     return scheduleCalendar;
   }
 
-  function renderScheduleCalendar() {
-    const cal = createScheduleCalendar();
-    const viewDate = new Date(currentDate);
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth();
+  // Токен защищает от гонки: если пользователь быстро переключил месяц
+  // (или закрыл календарь) до того, как пришли ответы про доступность,
+  // устаревший ответ не должен перезаписать уже актуальный рендер.
+  let scheduleCalendarRenderToken = 0;
 
-    const monthNames = [
-      "Январь",
-      "Февраль",
-      "Март",
-      "Апрель",
-      "Май",
-      "Июнь",
-      "Июль",
-      "Август",
-      "Сентябрь",
-      "Октябрь",
-      "Ноябрь",
-      "Декабрь",
-    ];
-    const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+  const scheduleMonthNames = [
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+  ];
+  const scheduleDayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+  const scheduleDayCellStyle =
+    "box-sizing:border-box;min-width:0;width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;overflow:hidden;";
 
+  // availability: null — не фильтруем (запрос ещё не завершился или не
+  // удался); объект вида {"YYYY-MM-DD": true} — ключ есть ТОЛЬКО у
+  // доступных дат (так их отдаёт API); отсутствие ключа = дата недоступна.
+  function buildScheduleCalendarHtml(year, month, availability) {
     const firstDay = new Date(year, month, 1);
     let startDay = firstDay.getDay() - 1;
     if (startDay < 0) startDay = 6;
@@ -1232,41 +1323,56 @@ document.addEventListener("DOMContentLoaded", function () {
     let html = `
         <div class="sc-header">
             <button type="button" class="sc-nav sc-prev">❮</button>
-            <span class="sc-title">${monthNames[month]} ${year}</span>
+            <span class="sc-title">${scheduleMonthNames[month]} ${year}</span>
             <button type="button" class="sc-nav sc-next">❯</button>
         </div>
         <div class="sc-weekdays" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;box-sizing:border-box;width:100%;">
     `;
 
-    dayNames.forEach((day) => {
+    scheduleDayNames.forEach((day) => {
       html += `<span style="box-sizing:border-box;min-width:0;text-align:center;overflow:hidden;">${day}</span>`;
     });
 
     html += `</div><div class="sc-days" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;box-sizing:border-box;width:100%;">`;
 
-    const dayCellStyle =
-      "box-sizing:border-box;min-width:0;width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;overflow:hidden;";
-
     for (let i = 0; i < startDay; i++) {
-      html += `<span class="sc-day sc-empty" style="${dayCellStyle}"></span>`;
+      html += `<span class="sc-day sc-empty" style="${scheduleDayCellStyle}"></span>`;
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
       const date = new Date(year, month, d);
+      const dateStr = formatDateForAPI(date);
       let cls = "sc-day";
 
-      if (date < today) {
+      const unavailable =
+        availability !== null && availability[dateStr] !== true;
+
+      if (date < today || unavailable) {
         cls += " sc-disabled";
       } else if (date.getTime() === currentDate.getTime()) {
         cls += " sc-selected";
       }
 
-      html += `<span class="${cls}" data-day="${d}" style="${dayCellStyle}">${d}</span>`;
+      html += `<span class="${cls}" data-day="${d}" style="${scheduleDayCellStyle}">${d}</span>`;
     }
 
     html += `</div>`;
-    cal.innerHTML = html;
+    return html;
+  }
 
+  // Лоадер вместо сетки дней, пока не пришла реальная занятость по
+  // месяцу — чтобы не показывать сначала все даты кликабельными, а через
+  // мгновение резко задизейбливать часть из них.
+  function buildScheduleCalendarLoaderHtml() {
+    return `
+      <div class="sc-loader">
+        <div class="sc-loader-spinner"></div>
+        <div class="sc-loader-text">Ищем окошко для вас…</div>
+      </div>
+    `;
+  }
+
+  function attachScheduleCalendarHandlers(cal, year, month) {
     // Обработчики навигации
     cal.querySelector(".sc-prev")?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1294,6 +1400,28 @@ document.addEventListener("DOMContentLoaded", function () {
           fetchFreeSlots();
         });
       });
+  }
+
+  async function renderScheduleCalendar() {
+    const cal = createScheduleCalendar();
+    const viewDate = new Date(currentDate);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const myToken = ++scheduleCalendarRenderToken;
+
+    // 1) Пока не пришла реальная занятость по месяцу — показываем лоадер,
+    //    а не сам календарь (иначе сначала все даты кликабельны, а через
+    //    миг часть из них резко становится серой — нелогично).
+    cal.innerHTML = buildScheduleCalendarLoaderHtml();
+    if (calendarVisible) positionCalendar();
+
+    // 2) Подгружаем занятость по дням месяца и только теперь показываем
+    //    календарь — сразу с итоговым состоянием.
+    const availability = await getMonthAvailability(year, month);
+    if (myToken !== scheduleCalendarRenderToken) return; // уже неактуально
+    cal.innerHTML = buildScheduleCalendarHtml(year, month, availability);
+    attachScheduleCalendarHandlers(cal, year, month);
+    if (calendarVisible) positionCalendar();
   }
 
   function positionCalendar() {

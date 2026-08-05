@@ -16,7 +16,7 @@ nav {
 
 .header-phone {
   text-decoration: none;
-  color: #6d7049;
+  color: #50523a;
   font-size: 20px;
   font-weight: 600;
   transition: 0.3s;
@@ -1305,17 +1305,6 @@ button:hover {
     opacity: 1;
     transform: translateY(0) scale(1);
     pointer-events: auto;
-  }
-
-  /* Если под кнопкой не хватает места — меню открывается вверх */
-  .hero-booking-group.open-up .hero-btn-split {
-    top: auto;
-    bottom: calc(100% + 12px);
-    transform: translateY(-12px) scale(0.92);
-  }
-
-  .hero-booking-group.open-up.open .hero-btn-split {
-    transform: translateY(0) scale(1);
   }
 
   .hero-btn-split-item {
@@ -2648,7 +2637,8 @@ html {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: linear-gradient(180deg, #bac4a2 0%, #b0c08b 55%, #b0c08b 100%);
+  background: linear-gradient(180deg, #b0c08b 0%, #b0c08b 55%, #b0c08b 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-left: none;
   border-radius: 0 14px 14px 0;
   padding: 18px 14px 18px 6px;
@@ -2727,8 +2717,7 @@ html {
 .side-nav.open {
   transform: translateY(-50%) translateX(0);
   background:
-    linear-gradient(180deg, #bac4a2 0%, #b0c08b 55%, #b0c08b 100%) left / 4px
-      100% no-repeat,
+    linear-gradient(180deg, #8e9165 0%, #65743d 100%) left / 4px 100% no-repeat,
     rgba(255, 255, 255, 0.97);
   border-color: #d8ddc5;
   box-shadow: -10px 10px 30px rgba(41, 50, 34, 0.16);
@@ -2784,7 +2773,7 @@ html {
   opacity: 1;
   background: rgba(142, 145, 101, 0.18);
   color: #4a5a2e;
-
+  box-shadow: inset 2px 0 0 #65743d;
 }
 
 .side-nav-link.active:hover {
@@ -4149,7 +4138,7 @@ html.custom-scroll body::-webkit-scrollbar {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 9px;
+  width: 10px;
   z-index: 1600;
   cursor: pointer;
   touch-action: none;
@@ -4159,10 +4148,10 @@ html.custom-scroll body::-webkit-scrollbar {
   position: absolute;
   top: 0;
   left: 0;
-  width: 80%;
-  height: 28px;
+  width: 100%;
+  height: 48px;
   border-radius: 10px;
-  background: linear-gradient(180deg, #bac4a2 0%, #8e9165 50%, #bac4a2 100%);
+  background: linear-gradient(180deg, #bac4a2 0%, #8e9165 100%);
   opacity: 0.85;
   cursor: grab;
   touch-action: none;
@@ -4195,15 +4184,15 @@ html.custom-scroll body::-webkit-scrollbar {
     linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.08) 0%,
-      rgba(194, 231, 173, 0) 40%
+      rgba(255, 255, 255, 0) 40%
     ),
     linear-gradient(
       180deg,
-      #bac4a2 0%,
-      #bdc092 26%,
+      #7b8452 0%,
+      #9da071 26%,
       #b6bf93 50%,
-      #b4bb8f 74%,
-      #bac4a2 100%
+      #969e6b 74%,
+      #6e7847 100%
     );
 
   background-size:
@@ -4250,6 +4239,7 @@ html.custom-scroll body::-webkit-scrollbar {
 
   animation: sideNavVerticalSheen 12s ease-in-out infinite;
 
+  border-color: rgba(255, 255, 255, 0.18);
   box-shadow:
     -10px 10px 30px rgba(41, 50, 34, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.16);
@@ -4283,7 +4273,7 @@ html.custom-scroll body::-webkit-scrollbar {
 .side-nav.open .side-nav-link.active {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
-
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.8);
 }
 
 .side-nav.open .side-nav-career-btn {

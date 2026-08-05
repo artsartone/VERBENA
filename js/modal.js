@@ -458,6 +458,51 @@ document.addEventListener("DOMContentLoaded", () => {
       return n < 10 ? "0" + n : "" + n;
     }
 
+    // ─── Доступные даты (как в боте: подсвечиваем только те дни, на
+    // которые реально есть свободные слоты) ───
+    // Кэш по (service, staff, год-месяц), чтобы при повторном заходе в
+    // тот же месяц не дёргать бэкенд заново.
+    var ycAvailableDatesCache = {};
+    function availableDatesCacheKey(serviceId, staffId, year, month) {
+      return serviceId + "|" + (staffId || "") + "|" + year + "-" + month;
+    }
+    // Возвращает Set ISO-дат со свободными слотами, либо null — null
+    // означает, что запрос не удался и фильтровать календарь нельзя
+    // (лучше показать все даты, чем ошибочно спрятать рабочие, — как в боте).
+    async function fetchAvailableDatesForMonth(serviceId, staffId, year, month) {
+      var key = availableDatesCacheKey(serviceId, staffId, year, month);
+      if (Object.prototype.hasOwnProperty.call(ycAvailableDatesCache, key)) {
+        return ycAvailableDatesCache[key];
+      }
+      var API = getApiBase();
+      var url =
+        API +
+        "/api/yclients/available-dates?service_id=" +
+        encodeURIComponent(serviceId) +
+        "&year=" +
+        year +
+        "&month=" +
+        (month + 1); // JS-месяцы с 0, бэкенд ждёт с 1
+      if (staffId) url += "&staff_id=" + encodeURIComponent(staffId);
+      var result = null;
+      try {
+        var res = await fetch(url);
+        if (res.ok) {
+          var data = await res.json();
+          if (Array.isArray(data)) {
+            result = {};
+            data.forEach(function (d) {
+              result[String(d)] = true;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("available-dates fetch failed:", e);
+      }
+      ycAvailableDatesCache[key] = result;
+      return result;
+    }
+
     // ─── Helper: reposition calendar to the correct parent on resize/orientation change ───
     function ensureCalendarParent() {
       var isMobile = window.innerWidth <= 600;
@@ -469,60 +514,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    function renderCalendar() {
-      var y = viewDate.getFullYear(),
-        m = viewDate.getMonth();
-      var sw = new Date(y, m, 1).getDay() - 1;
-      if (sw < 0) sw = 6;
-      var dim = new Date(y, m + 1, 0).getDate();
-      var td = new Date();
-      td.setHours(0, 0, 0, 0);
-      var html =
-        '<div class="sc-header"><button type="button" class="sc-nav sc-prev">&#10094;</button><span class="sc-title">' +
-        monthNames[m] +
-        " " +
-        y +
-        '</span><button type="button" class="sc-nav sc-next">&#10095;</button></div><div class="sc-weekdays">';
-      for (var i = 0; i < 7; i++) html += "<span>" + dayNames[i] + "</span>";
-      html += '</div><div class="sc-days">';
-      for (var i = 0; i < sw; i++)
-        html += '<span class="sc-day sc-empty"></span>';
-      for (var d = 1; d <= dim; d++) {
-        var dt = new Date(y, m, d);
-        var cls = "sc-day";
-        if (dt < td) cls += " sc-disabled";
-        if (selectedDate && selectedDate.getTime() === dt.getTime())
-          cls += " sc-selected";
-        html +=
-          '<span class="' + cls + '" data-day="' + d + '">' + d + "</span>";
-      }
-      html += "</div>";
-      calendar.innerHTML = html;
-      calendar
-        .querySelector(".sc-prev")
-        ?.addEventListener("click", function (e) {
-          e.stopPropagation();
-          viewDate.setMonth(viewDate.getMonth() - 1);
-          renderCalendar();
-        });
-      calendar
-        .querySelector(".sc-next")
-        ?.addEventListener("click", function (e) {
-          e.stopPropagation();
-          viewDate.setMonth(viewDate.getMonth() + 1);
-          renderCalendar();
-        });
-      calendar
-        .querySelectorAll(".sc-day:not(.sc-empty):not(.sc-disabled)")
-        .forEach(function (el) {
-          el.addEventListener("click", function () {
-            var day = parseInt(this.dataset.day, 10);
-            selectedDate = new Date(y, m, day);
-            dateInput.value = pad(day) + "." + pad(m + 1) + "." + y;
-            calendar.classList.remove("active");
-            window.tryLoadTimes();
-          });
-        });
+    function positionCalendar() {
       ensureCalendarParent();
       var isMobile = window.innerWidth <= 600;
       if (isMobile) {
@@ -552,6 +544,119 @@ document.addEventListener("DOMContentLoaded", () => {
         calendar.style.width = "280px";
         calendar.style.maxWidth = "calc(100vw - 24px)";
       }
+    }
+
+    // Строит HTML сетки дней. availableDates: null — не фильтруем
+    // (услуга ещё не из YClients, или запрос не удался — как в боте, лучше
+    // показать все даты, чем ошибочно спрятать рабочие); объект вида
+    // {"YYYY-MM-DD": true} — фильтруем по нему.
+    function buildCalendarHtml(y, m, availableDates) {
+      var sw = new Date(y, m, 1).getDay() - 1;
+      if (sw < 0) sw = 6;
+      var dim = new Date(y, m + 1, 0).getDate();
+      var td = new Date();
+      td.setHours(0, 0, 0, 0);
+      var html =
+        '<div class="sc-header"><button type="button" class="sc-nav sc-prev">&#10094;</button><span class="sc-title">' +
+        monthNames[m] +
+        " " +
+        y +
+        '</span><button type="button" class="sc-nav sc-next">&#10095;</button></div>';
+      html += '<div class="sc-weekdays">';
+      for (var i = 0; i < 7; i++) html += "<span>" + dayNames[i] + "</span>";
+      html += '</div><div class="sc-days">';
+      for (var i = 0; i < sw; i++)
+        html += '<span class="sc-day sc-empty"></span>';
+      for (var d = 1; d <= dim; d++) {
+        var dt = new Date(y, m, d);
+        var iso = y + "-" + pad(m + 1) + "-" + pad(d);
+        var cls = "sc-day";
+        var unavailable = availableDates !== null && !availableDates[iso];
+        if (dt < td || unavailable) cls += " sc-disabled";
+        if (selectedDate && selectedDate.getTime() === dt.getTime())
+          cls += " sc-selected";
+        html +=
+          '<span class="' + cls + '" data-day="' + d + '">' + d + "</span>";
+      }
+      html += "</div>";
+      return html;
+    }
+
+    // Лоадер вместо сетки дней, пока не пришли доступные даты — чтобы
+    // не показывать сначала все даты кликабельными, а через мгновение
+    // резко задизейбливать часть из них.
+    function buildCalendarLoaderHtml() {
+      return (
+        '<div class="sc-loader"><div class="sc-loader-spinner"></div>' +
+        '<div class="sc-loader-text">Ищем окошко для вас…</div></div>'
+      );
+    }
+
+    // Токен защищает от гонки: если пользователь быстро переключил месяц
+    // (или закрыл календарь) до того, как пришёл ответ на available-dates,
+    // устаревший ответ не должен перезаписать уже актуальный рендер.
+    var calendarRenderToken = 0;
+
+    function attachCalendarHandlers(y, m) {
+      calendar
+        .querySelector(".sc-prev")
+        ?.addEventListener("click", function (e) {
+          e.stopPropagation();
+          viewDate.setMonth(viewDate.getMonth() - 1);
+          renderCalendar();
+        });
+      calendar
+        .querySelector(".sc-next")
+        ?.addEventListener("click", function (e) {
+          e.stopPropagation();
+          viewDate.setMonth(viewDate.getMonth() + 1);
+          renderCalendar();
+        });
+      calendar
+        .querySelectorAll(".sc-day:not(.sc-empty):not(.sc-disabled)")
+        .forEach(function (el) {
+          el.addEventListener("click", function () {
+            var day = parseInt(this.dataset.day, 10);
+            selectedDate = new Date(y, m, day);
+            dateInput.value = pad(day) + "." + pad(m + 1) + "." + y;
+            calendar.classList.remove("active");
+            window.tryLoadTimes();
+          });
+        });
+    }
+
+    async function renderCalendar() {
+      var y = viewDate.getFullYear(),
+        m = viewDate.getMonth();
+      var myToken = ++calendarRenderToken;
+
+      // Если фильтровать нечем (услуга/мастер ещё не выбраны) — фактически
+      // нечего ждать, сразу показываем календарь без лоадера.
+      if (!selectedService || !selectedStaffId) {
+        calendar.innerHTML = buildCalendarHtml(y, m, null);
+        attachCalendarHandlers(y, m);
+        positionCalendar();
+        return;
+      }
+
+      // 1) Пока не пришёл ответ про доступные даты — показываем лоадер,
+      //    а не сам календарь (иначе сначала все даты кликабельны,
+      //    а через миг часть из них резко становится серой — нелогично).
+      calendar.innerHTML = buildCalendarLoaderHtml();
+      positionCalendar();
+
+      // 2) Подгружаем реально доступные даты (как в боте) и только теперь
+      //    показываем календарь — сразу с итоговым состоянием.
+      var availableDates = await fetchAvailableDatesForMonth(
+        selectedService.id,
+        selectedStaffId,
+        y,
+        m,
+      );
+      if (myToken !== calendarRenderToken) return; // уже неактуально
+      calendar.innerHTML = buildCalendarHtml(y, m, availableDates);
+      attachCalendarHandlers(y, m);
+      positionCalendar();
     }
     dateInput.addEventListener("click", function () {
       if (!dateInput.disabled) {

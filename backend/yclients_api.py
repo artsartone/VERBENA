@@ -2,8 +2,9 @@ import os
 import time
 import logging
 import threading
+import calendar
 import collections
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -179,50 +180,54 @@ def get_services(category_id=None, error_flag=None):
 
 
 def get_bookable_services(error_flag=None):
-    """GET /book_services/{company_id} — каталог услуг ГЛАЗАМИ виджета
-    онлайн-записи, а не CRM (в отличие от get_services(), которая ходит
-    в /company/{id}/services/ и отдаёт ВСЕ услуги каталога, включая
-    архивные/скрытые/не включённые в онлайн-запись).
-
-    Нужна там, где id услуг потом передаются в другую виджетную ручку —
-    например, book_staff (см. get_staff_for_booking) — которая валидирует
-    весь переданный service_ids[] и при наличии среди них хотя бы одного
-    id, не годного для онлайн-записи, отвечает 422 на ВЕСЬ запрос целиком
-    (без указания, какой именно id был плохим). get_services() в паре с
-    book_staff регулярно ловит это на аккаунтах, где каталог шире
-    online-bookable подмножества (см. историю бага: 28 услуг в каталоге,
-    book_staff → HTTP 422 Unprocessable Content)."""
-
+    """Получает услуги, пригодные для онлайн-записи."""
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
-        logger.error(
-            "YCLIENTS_PARTNER_TOKEN or YCLIENTS_USER_TOKEN not configured")
-        if error_flag is not None:
-            error_flag.append(True)
+        logger.error("Tokens not configured")
+        if error_flag is not None: error_flag.append(True)
         return []
 
+    # ВАЖНО: /services/{company_id} — устаревшая (deprecated) ручка каталога
+    # услуг из CRM-группы API. Для списка услуг, доступных именно для
+    # онлайн-записи, YClients предоставляет отдельную ручку виджета
+    # book_services/{company_id} — её и нужно использовать здесь.
     url = f"{YCLIENTS_API_BASE}/book_services/{YCLIENTS_COMPANY_ID}"
     try:
         resp = _request_with_retry("get", url, headers=_headers())
-        if resp is not None and resp.status_code == 200:
-            data = resp.json().get("data", [])
-            # На некоторых версиях API это плоский список услуг, на других —
-            # объект вида {"services": [...], "categories": [...]}. Приводим
-            # к списку в обоих случаях, ничего не предполагая заранее.
-            if isinstance(data, dict):
-                data = data.get("services", [])
-            return data or []
+        if resp and resp.status_code == 200:
+            data = resp.json()
+            payload = data.get("data", []) if isinstance(data, dict) else data
+
+            # book_services может вернуть либо плоский список услуг, либо
+            # список категорий с вложенным services[] — поддержим оба формата.
+            services = []
+            if isinstance(payload, list):
+                for item in payload:
+                    if isinstance(item, dict) and "services" in item:
+                        services.extend(item.get("services") or [])
+                    elif isinstance(item, dict):
+                        services.append(item)
+
+            # Фильтруем только активные (если поле active вообще присутствует)
+            active_services = [
+                s for s in services
+                if s.get("active") in (1, True, "1", "true", "True")
+            ]
+
+            # Если активных нет (например, поля active нет в этом формате
+            # ответа), возвращаем все, чтобы не сломать логику
+            if not active_services:
+                return services
+
+            return active_services
         else:
-            status = resp.status_code if resp is not None else "no response"
-            body = resp.text[:200] if resp is not None else ""
-            logger.error(
-                f"YClients book_services error: HTTP {status} - {body}")
-            if error_flag is not None:
-                error_flag.append(True)
+            status = resp.status_code if resp else "no response"
+            body = resp.text[:200] if resp else ""
+            logger.error(f"YClients book_services error: HTTP {status} - {body}")
+            if error_flag: error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients book_services exception: {e}")
-        if error_flag is not None:
-            error_flag.append(True)
+        if error_flag: error_flag.append(True)
         return []
 
 
@@ -332,8 +337,12 @@ def _book_staff_bisect(ids, error_flag=None, _depth=0):
         return []
 
     mid = len(ids) // 2
-    left = _book_staff_bisect(ids[:mid], error_flag=error_flag, _depth=_depth + 1)
-    right = _book_staff_bisect(ids[mid:], error_flag=error_flag, _depth=_depth + 1)
+    left = _book_staff_bisect(ids[:mid],
+                              error_flag=error_flag,
+                              _depth=_depth + 1)
+    right = _book_staff_bisect(ids[mid:],
+                               error_flag=error_flag,
+                               _depth=_depth + 1)
 
     merged = {}
     for staff in left + right:
@@ -363,8 +372,8 @@ def get_staff_for_booking(service_id=None, error_flag=None):
         status, data = _book_staff_request([], error_flag=error_flag)
         return data or [] if status == 200 else []
 
-    ids = list(service_id if isinstance(service_id, (list, tuple, set))
-               else [service_id])
+    ids = list(service_id if isinstance(service_id, (list, tuple,
+                                                     set)) else [service_id])
 
     return _book_staff_bisect(ids, error_flag=error_flag)
 
@@ -428,32 +437,83 @@ def get_staff_timetable(staff_id, date_str, error_flag=None):
 
 
 def get_available_times(service_id, staff_id, date_str, error_flag=None):
-    """service_id: id услуги, список id услуг, или None/пусто.
-
-    Если service_id не задан — book_times вернёт времена БЕЗ фильтра по
-    конкретной услуге, но с той же квантовкой (шагом записи), что и с
-    услугой: это ровно те тайминги, которые реально можно указать в
-    datetime при создании записи, а не сырая 5-минутная занятость
-    сотрудника. Именно поэтому для публичного превью свободных окон
-    (без выбора услуги) нужно звать эту ручку, а не собирать времена
-    из timetable/seances — там 5-минутные тики не гарантированно
-    являются валидными стартами записи (см. настройку "доступное время
-    для онлайн-записи" в YClients — время может быть ограничено шагом,
-    например только 9:00, 10:00, 11:00... для часовой услуги)."""
-
+    """
+    ШАГ 2: Получает доступное время для записи на конкретную дату к выбранному мастеру.
+    Запрос: GET /book_times/{company_id}/{staff_id}/{date}?service_ids[]=...
+    Ответ: [{"time": "10:30", "seance_length": 9000, ...}, ...]
+    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
-        if error_flag is not None:
-            error_flag.append(True)
+        if error_flag is not None: error_flag.append(True)
         return []
 
-    url = (f"{YCLIENTS_API_BASE}/book_times/{YCLIENTS_COMPANY_ID}"
-           f"/{staff_id}/{date_str}")
+    # Гарантируем формат YYYY-MM-DD для URL
+    if "." in date_str:
+        parts = date_str.split(".")
+        date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
+    url = f"{YCLIENTS_API_BASE}/book_times/{YCLIENTS_COMPANY_ID}/{staff_id}/{date_str}"
+
+    # --- Правильная обработка списка или одиночного ID ---
     params = []
     if service_id:
-        ids = (service_id if isinstance(service_id,
-                                        (list, tuple, set)) else [service_id])
+        ids = service_id if isinstance(service_id,
+                                       (list, tuple, set)) else [service_id]
         params.extend(("service_ids[]", sid) for sid in ids)
+    # -----------------------------------------------------
+
+    try:
+        resp = _request_with_retry("get",
+                                   url,
+                                   headers=_headers(),
+                                   params=params)
+        if resp is not None and resp.status_code == 200:
+            data = resp.json().get("data", [])
+            times = []
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and "time" in item:
+                        times.append(item["time"])
+            return times
+
+        elif resp is not None and resp.status_code == 404:
+            # 404 — мастер не работает в этот день или нет слотов под эту услугу
+            return []
+
+        else:
+            status = resp.status_code if resp is not None else "no response"
+            body = resp.text[:200] if resp is not None else ""
+            logger.error(
+                f"YClients available times error: HTTP {status} - {body}")
+            if error_flag is not None: error_flag.append(True)
+            return []
+    except Exception as e:
+        logger.error(f"YClients available times exception: {e}")
+        if error_flag is not None: error_flag.append(True)
+        return []
+
+
+def get_staff_schedule(start_date, end_date, staff_ids=None, error_flag=None):
+    """
+    Получает расписание (графики и занятость) мастеров за период.
+    GET /company/{id}/staff/schedule
+    """
+    if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
+        logger.error("Tokens not configured")
+        if error_flag is not None: error_flag.append(True)
+        return {}
+
+    url = f"{YCLIENTS_API_BASE}/company/{YCLIENTS_COMPANY_ID}/staff/schedule"
+    params = {
+        "start_date": start_date.strftime("%Y-%m-%d"),
+        "end_date": end_date.strftime("%Y-%m-%d"),
+    }
+    if staff_ids:
+        # staff_ids может быть строкой, int, или списком
+        ids = staff_ids if isinstance(staff_ids,
+                                      (list, tuple, set)) else [staff_ids]
+        params["staff_ids[]"] = ids
+
     try:
         resp = _request_with_retry("get",
                                    url,
@@ -461,90 +521,120 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
                                    params=params)
         if resp is not None and resp.status_code == 200:
             data = resp.json()
-            times_data = data.get("data", [])
-            # /book_times/ returns [{time: "10:00", ...}, ...]
-            if isinstance(times_data, list) and len(times_data) > 0:
-                if isinstance(times_data[0], dict) and "time" in times_data[0]:
-                    return [item["time"] for item in times_data]
-                return times_data
-            if isinstance(times_data, dict) and "times" in times_data:
-                return times_data["times"]
-            return []
+            if isinstance(data, dict) and "data" in data:
+                return data["data"]
+            else:
+                logger.warning("YClients schedule: unexpected response format")
+                return {}
+        elif resp is not None and resp.status_code == 404:
+            # 404 может значить, что мастеров нет или они не работают в этот период
+            return {}
         else:
             status = resp.status_code if resp is not None else "no response"
             body = resp.text[:200] if resp is not None else ""
-            if status == 404:
-                # Легитимный ответ YClients: этот мастер не бронируется на
-                # эту услугу через онлайн-запись — не инфраструктурная
-                # ошибка. Не поднимаем error_flag из-за неё, иначе она
-                # ложно портит эвристику had_errors и заставляет кэш дня
-                # пересчитываться заново без реальной причины.
-                logger.info(
-                    f"YClients available times: мастер {staff_id} недоступен "
-                    f"для услуги {service_id} ({date_str}) — HTTP 404")
-                return []
             logger.error(
-                f"YClients available times error: HTTP {status} - {body}")
-            if error_flag is not None:
-                error_flag.append(True)
-            return []
+                f"YClients staff schedule error: HTTP {status} - {body}")
+            if error_flag is not None: error_flag.append(True)
+            return {}
     except Exception as e:
-        logger.error(f"YClients available times exception: {e}")
-        if error_flag is not None:
-            error_flag.append(True)
-        return []
+        logger.error(f"YClients staff schedule exception: {e}")
+        if error_flag is not None: error_flag.append(True)
+        return {}
 
 
-def get_available_dates(service_id,
-                        staff_id,
+# ─── Available Dates ───
+def get_available_dates(service_id=None,
+                        staff_id=None,
                         month=None,
                         year=None,
                         error_flag=None):
+    """
+    ШАГ 1: Получает список дат в месяце, на которые есть свободные слоты.
+    Запрос: GET /book_dates/{company_id}?date_from=YYYY-MM-01&date_to=YYYY-MM-DD[&service_ids[]=...]
+    Ответ: ["2026-08-05", "2026-08-09", ...]
 
+    ВАЖНО про service_ids[]: это НЕ "фильтр по любой из услуг", а фильтр
+    "дата, на которую можно записаться на ВСЕ перечисленные услуги сразу"
+    (как при выборе нескольких услуг в одной записи) — YClients считает
+    пересечение доступности. Если передать туда id вообще всех активных
+    услуг салона (десятки), пересечение почти всегда пустое — это и
+    было причиной пустого календаря. Поэтому если конкретная услуга не
+    выбрана явно (service_id не передан), НЕ подставляем сюда список
+    услуг — просто не отправляем service_ids[] вообще, и YClients сам
+    вернёт даты, на которые доступна хотя бы одна услуга (проверено
+    вручную: тот же book_dates без service_ids[] отдаёт непустой
+    booking_dates).
+    """
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
         logger.error("Tokens not configured")
-        if error_flag is not None:
-            error_flag.append(True)
+        if error_flag is not None: error_flag.append(True)
         return []
 
     now = datetime.now()
     month = month or now.month
     year = year or now.year
 
+    # Поддерживаем и один ID, и список/множество ID. Если ничего не
+    # передано — фильтр по услугам просто не отправляется (см. докстринг).
+    ids = []
+    if service_id:
+        ids = list(service_id) if isinstance(
+            service_id, (list, tuple, set)) else [service_id]
+
     url = f"{YCLIENTS_API_BASE}/book_dates/{YCLIENTS_COMPANY_ID}"
-    params = {
-        "service_ids[]": [service_id],
-        "staff_id": staff_id,
-        # У book_dates фильтр по месяцу задаётся одним параметром date
-        # (любой день внутри нужного месяца), а не month/year.
-        "date": f"{year:04d}-{month:02d}-01",
-    }
+
+    # date_from/date_to на весь месяц — YClients реально возвращает данные
+    # по этим параметрам (проверено вручную), а не по одиночному date=.
+    last_day = calendar.monthrange(year, month)[1]
+    date_from = f"{year:04d}-{month:02d}-01"
+    date_to = f"{year:04d}-{month:02d}-{last_day:02d}"
+
+    # ВАЖНО: используем список кортежей, а не словарь, для корректной отправки нескольких service_ids[]
+    params = [("date_from", date_from), ("date_to", date_to)]
+    for sid in ids:
+        params.append(("service_ids[]", sid))
+
+    if staff_id and str(staff_id) != "0":
+        params.append(("staff_id", staff_id))
+
     try:
         resp = _request_with_retry("get",
                                    url,
                                    headers=_headers(),
                                    params=params)
         if resp is not None and resp.status_code == 200:
-            data = resp.json()
-            dates_data = data.get("data", [])
+            payload = resp.json().get("data", {})
+            raw_dates = []
+
+            if isinstance(payload, dict):
+                raw_dates = payload.get("booking_dates", [])
+            elif isinstance(payload, list):
+                raw_dates = payload
+
+            dates_data = []
+            for item in raw_dates:
+                if isinstance(item, (int, float)):
+                    # Если YClients вернул Unix-таймстемпы
+                    dates_data.append(
+                        datetime.fromtimestamp(
+                            item, tz=timezone.utc).strftime("%Y-%m-%d"))
+                else:
+                    dates_data.append(str(item))
             return dates_data
+
+        elif resp is not None and resp.status_code == 404:
+            # 404 — легитимный ответ: в этом месяце нет свободных дат
+            return []
         else:
             status = resp.status_code if resp is not None else "no response"
             body = resp.text[:200] if resp is not None else ""
-            if status == 404:
-                logger.info(
-                    f"YClients available dates: мастер {staff_id} недоступен "
-                    f"для услуги {service_id} — HTTP 404")
-                return []
             logger.error(
                 f"YClients available dates error: HTTP {status} - {body}")
-            if error_flag is not None:
-                error_flag.append(True)
+            if error_flag is not None: error_flag.append(True)
             return []
     except Exception as e:
         logger.error(f"YClients available dates exception: {e}")
-        if error_flag is not None:
-            error_flag.append(True)
+        if error_flag is not None: error_flag.append(True)
         return []
 
 

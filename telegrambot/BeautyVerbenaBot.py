@@ -110,7 +110,14 @@ def load_yc_staff(service_id=None):
 
     If service_id is given, only staff assigned to that specific service are
     returned (backend must forward this to yclients_api.get_staff_for_booking()).
-    """
+
+    ПРИМЕЧАНИЕ: для случая с известным service_id этот живой запрос теперь
+    НЕ используется в основном сценарии бота (см. yc_staff_for_service) —
+    у каждой услуги в _YC_SERVICES_CACHE уже есть свой встроенный список
+    "staff", тем же способом, каким backend извлекает мастеров в
+    yclients_api.extract_active_staff(). Функция оставлена для fallback-
+    сценария (услуга не из YClients) и на случай, если понадобится
+    полный, не привязанный к кэшу запрос."""
     try:
         params = {"service_id": service_id} if service_id else {}
         resp = requests.get(f"{API_BASE}/api/yclients/staff",
@@ -121,6 +128,25 @@ def load_yc_staff(service_id=None):
     except Exception as e:
         logger.warning(f"YClients staff load failed: {e}")
     return []
+
+
+def yc_staff_for_service(yc_service: dict):
+    """Мастера конкретной услуги YClients БЕЗ живого запроса к API.
+
+    Раньше service_selected() на КАЖДЫЙ выбор услуги любым пользователем
+    делал отдельный живой запрос /api/yclients/staff?service_id=... —
+    на backend это /book_staff/{company_id}?service_ids[]=... (см.
+    yclients_api.get_staff_for_booking), ручка с историей 422 на
+    "плохих" id и бисекцией для обхода (см. yclients_api._book_staff_bisect).
+    Между тем сама услуга уже пришла из /company/{id}/services/ (см.
+    _YC_SERVICES_CACHE / load_yc_services) — а YClients отдаёт эту ручку
+    с встроенным списком "staff": [...] для каждой услуги, тем же полем,
+    которым backend уже пользуется в yclients_api.extract_active_staff()
+    для расчёта свободных окон. Значит мастеров для уже выбранной услуги
+    можно взять прямо из уже загруженного (и обновляемого раз в
+    _YC_CACHE_TTL секунд, см. refresh_yc_cache) кэша услуг — без единого
+    дополнительного обращения к YClients на каждое нажатие кнопки."""
+    return yc_service.get("staff", []) or []
 
 
 def load_yc_services():
@@ -181,17 +207,56 @@ async def refresh_yc_cache_async():
         await loop.run_in_executor(None, refresh_yc_cache)
 
 
+async def _show_loading(query, text: str = "⏳ Секунду, загружаю...") -> None:
+    """Показать заглушку на время запроса к бэкенду/YClients.
+
+    Используется перед потенциально небыстрыми сетевыми запросами
+    (доступные даты/время, создание записи), чтобы пользователь видел,
+    что бот работает, а не завис — сообщение сразу же будет заменено
+    результатом запроса.
+    """
+    try:
+        await query.edit_message_text(text)
+    except Exception as e:
+        if "not modified" not in str(e).lower():
+            logger.debug(f"Не удалось показать индикатор загрузки: {e}")
+
+
+async def _show_typing(update: Update,
+                       context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать статус «печатает…» в чате на время фонового запроса.
+
+    В отличие от _show_loading (для callback-кнопок с редактируемым
+    сообщением), используется там, где ответ идёт обычным текстовым
+    сообщением (например, отправка заявки на трудоустройство).
+    """
+    chat = update.effective_chat
+    if not chat:
+        return
+    try:
+        await context.bot.send_chat_action(chat_id=chat.id, action="typing")
+    except Exception as e:
+        logger.debug(f"Не удалось показать статус 'печатает': {e}")
+
+
 def yc_service_category_id(svc: dict):
     """Достать category_id из услуги YClients (как в modal.js: svc.category_id || svc.category.id)."""
     return svc.get("category_id") or (svc.get("category") or {}).get("id")
 
 
 def yc_services_in_category(category_id):
-    """Реальные услуги YClients для данной категории (как populateServices() в modal.js)."""
+    """Реальные услуги YClients для данной категории (как populateServices() в modal.js).
+
+    Отдаёт только услуги с active == 1 — как в extract_active_staff()
+    (см. yclients_api.py): active == 1 отражает реальную доступность
+    услуги в самом YClients (архивные/скрытые услуги отдаются тем же
+    /company/{id}/services/ с active == 0, но показывать их в боте
+    для записи нельзя)."""
     cat_id_str = str(category_id)
     return [
         s for s in _YC_SERVICES_CACHE
         if str(yc_service_category_id(s) or "") == cat_id_str
+        and s.get("active") == 1
     ]
 
 
@@ -343,7 +408,8 @@ MAIN_MENU_TEXT = (
     "и узнать больше о нашей студии.\n\n"
     "📍 г. Строитель, ул. Октябрьская, 15\n"
     "🕐 Ежедневно 10:00–20:00\n"
-    "📞 +7 (915) 526-50-56\n\n"
+    "📞 +7 (915) 526-50-56\n"
+    "🌍 https://beauty-verbena.ru\n\n"
     "<i>Выберите действие:</i>")
 
 MAIN_MENU_KEYBOARD = InlineKeyboardMarkup([
@@ -549,6 +615,8 @@ async def _submit_career_application(
         "source": "tg",
         "telegram_id": telegram_id,
     }
+
+    await _show_typing(update, context)
 
     try:
         resp = requests.post(f"{API_BASE}/api/career/submit",
@@ -803,7 +871,10 @@ async def service_selected(update: Update,
     yc_service = None
     if _YC_SERVICES_CACHE:
         for svc in _YC_SERVICES_CACHE:
-            if str(svc.get("id")) == raw:
+            # active == 1 — иначе можно словить нажатие на устаревшую кнопку
+            # из старого сообщения (услугу деактивировали/сняли с онлайн-записи
+            # после того, как меню было показано пользователю).
+            if str(svc.get("id")) == raw and svc.get("active") == 1:
                 yc_service = svc
                 break
 
@@ -811,9 +882,9 @@ async def service_selected(update: Update,
         service_name = yc_service.get("title", "Услуга")
         context.user_data["service"] = service_name
         context.user_data["yclients_service_id"] = yc_service["id"]
-        # Мастера, реально привязанные именно к этой услуге —
-        # запрашиваем отдельно через /book_staff (свежий запрос, не кэш).
-        staff = load_yc_staff(service_id=yc_service["id"])
+        # Мастера этой услуги — из уже закэшированного списка услуг, без
+        # живого запроса к YClients (см. yc_staff_for_service).
+        staff = yc_staff_for_service(yc_service)
     else:
         # ─── Fallback: статический список услуг (старое поведение) ───
         try:
@@ -854,37 +925,234 @@ async def service_selected(update: Update,
         )
         return SELECT_STAFF
     else:
-        # No YClients staff, go directly to date selection
+        context.user_data["date_page"] = 0
         return await _show_date_selection(query, context, service_name)
 
 
-async def _show_date_selection(query, context, service_name):
-    """Show date selection after service (and optionally staff) selected."""
+DATE_RANGE_DAYS = 14
+# ─── Пагинация дат ───
+DATE_WINDOW_DAYS = 60  # на сколько дней вперёд ищем доступные даты
+DATE_PAGE_SIZE = 14  # сколько дат показывать на одной странице
+
+# TTL для локального (в рамках одного диалога) кэша доступных дат/времени.
+# Нужен только для навигации "Назад" внутри уже начатой записи (см.
+# back_to_date/back_to_time) — пока пользователь ходит между шагами
+# туда-обратно, не меняя услугу/мастера/дату, нет смысла на каждый такой
+# клик заново дёргать YClients: book_dates/book_times не кэшируются на
+# backend (в отличие от /api/public/free-slots), поэтому без этого кэша
+# каждое "Назад" — это живой запрос к YClients с тем же результатом.
+# Хранится в context.user_data, то есть per-диалог, и живёт не дольше
+# самого диалога — никакого риска отдать чужие/устаревшие данные другому
+# пользователю.
+_NAV_CACHE_TTL = 60  # секунд
+
+
+def _fetch_available_dates_for_month(service_id, staff_id, year, month):
+    """Один вызов /api/yclients/available-dates за конкретный месяц.
+
+    Возвращает set ISO-дат ("YYYY-MM-DD") со свободными слотами, либо
+    None, если запрос не удался — этим None (в отличие от пустого set)
+    сигнализирует, что фильтровать календарь нельзя, и вызывающий код
+    должен показать все даты, как раньше (не прятать даты из-за сбоя API)."""
+    params = {"service_id": service_id, "month": month, "year": year}
+    if staff_id and staff_id != "0":
+        params["staff_id"] = staff_id
+    try:
+        resp = requests.get(
+            f"{API_BASE}/api/yclients/available-dates",
+            params=params,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list):
+                return {str(d) for d in data}
+        logger.warning(
+            f"available-dates: HTTP {resp.status_code} - {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Ошибка при получении доступных дат: {e}")
+    return None
+
+
+def _get_available_dates_set(service_id,
+                             staff_id,
+                             context,
+                             days=DATE_WINDOW_DAYS):
+    """Доступные даты (ISO) в пределах ближайших `days` дней.
+
+    Учитывает, что окно может захватывать несколько календарных месяцев.
+    Результат кэшируется в context.user_data на _NAV_CACHE_TTL секунд.
+    """
+    cache = context.user_data.get("_dates_cache")
+    cache_key = (str(service_id), str(staff_id), int(days))
+
+    if cache and cache.get("key") == cache_key:
+        age = datetime.now().timestamp() - cache["ts"]
+        if age < _NAV_CACHE_TTL:
+            return cache["data"]
+
     today = date.today()
+    end = today + timedelta(days=days - 1)
+
+    # Собираем все месяцы, которые попадают в диапазон
+    months = []
+    cur = today.replace(day=1)
+    end_month = end.replace(day=1)
+
+    while cur <= end_month:
+        months.append((cur.year, cur.month))
+        if cur.month == 12:
+            cur = cur.replace(year=cur.year + 1, month=1)
+        else:
+            cur = cur.replace(month=cur.month + 1)
+
+    all_dates = set()
+
+    for (y, m) in months:
+        result = _fetch_available_dates_for_month(service_id, staff_id, y, m)
+
+        if result is None:
+            # Если хотя бы один месяц не удалось получить —
+            # не фильтруем даты, чтобы случайно не скрыть рабочие дни.
+            return None
+
+        all_dates |= result
+
+    context.user_data["_dates_cache"] = {
+        "key": cache_key,
+        "ts": datetime.now().timestamp(),
+        "data": all_dates,
+    }
+
+    return all_dates
+
+
+async def _show_date_selection(query, context, service_name):
+    """Показ выбора даты с пагинацией стрелками вперёд/назад."""
+    today = date.today()
+
+    yc_service_id = context.user_data.get("yclients_service_id", "")
+    yc_staff_id = context.user_data.get("yclients_staff_id", "")
+
+    available_dates = None
+
+    if yc_service_id:
+        # Показываем заглушку, только если данных ещё нет в кэше диалога —
+        # иначе будет лишнее мигание сообщения при листании уже
+        # закэшированных дат.
+        dates_cache_key = (str(yc_service_id), str(yc_staff_id),
+                          int(DATE_WINDOW_DAYS))
+        dates_cache = context.user_data.get("_dates_cache")
+        cache_fresh = (dates_cache and dates_cache.get("key") == dates_cache_key
+                       and (datetime.now().timestamp() - dates_cache.get("ts", 0))
+                       < _NAV_CACHE_TTL)
+        if not cache_fresh:
+            await _show_loading(query, "⏳ Ищу свободные даты...")
+
+        available_dates = _get_available_dates_set(yc_service_id,
+                                                   yc_staff_id,
+                                                   context,
+                                                   days=DATE_WINDOW_DAYS)
+
+    if available_dates is not None:
+        all_dates = []
+
+        for i in range(DATE_WINDOW_DAYS):
+            d = today + timedelta(days=i)
+            iso_date = d.isoformat()
+
+            if iso_date in available_dates:
+                all_dates.append(iso_date)
+    else:
+        # Fallback: если услуга не из YClients или API недоступен,
+        # показываем ближайшие DATE_RANGE_DAYS дней без фильтрации.
+        all_dates = [(today + timedelta(days=i)).isoformat()
+                     for i in range(DATE_RANGE_DAYS)]
+
+    if not all_dates:
+        keyboard = [[
+            InlineKeyboardButton("◀️ Назад",
+                                 callback_data="back_to_categories")
+        ]]
+
+        await query.edit_message_text(
+            f"💇‍♀️ <b>Услуга:</b> {service_name}\n"
+            "😔 На ближайшие даты нет свободных записей. "
+            "Попробуйте выбрать другого мастера или загляните позже.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML",
+        )
+
+        return SELECT_DATE
+
+    page = int(context.user_data.get("date_page", 0) or 0)
+
+    page_count = max(1,
+                     (len(all_dates) + DATE_PAGE_SIZE - 1) // DATE_PAGE_SIZE)
+
+    if page < 0:
+        page = 0
+
+    if page >= page_count:
+        page = page_count - 1
+
+    context.user_data["date_page"] = page
+
+    start_idx = page * DATE_PAGE_SIZE
+    page_dates = all_dates[start_idx:start_idx + DATE_PAGE_SIZE]
+
     keyboard = []
     row = []
-    for i in range(14):
-        d = today + timedelta(days=i)
+
+    for iso_date in page_dates:
+        d = date.fromisoformat(iso_date)
+
         label = d.strftime("%d.%m")
         day_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][d.weekday()]
+
         btn_text = f"{label} ({day_name})"
         callback = f"date_{d.strftime('%d.%m.%Y')}"
+
         row.append(InlineKeyboardButton(btn_text, callback_data=callback))
+
         if len(row) == 2:
             keyboard.append(row)
             row = []
+
     if row:
         keyboard.append(row)
-    keyboard.append(
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_categories")])
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # ─── Стрелки вперёд / назад ───
+    nav_row = []
+
+    if page > 0:
+        nav_row.append(
+            InlineKeyboardButton("◀️ Предыдущие", callback_data="dates_prev"))
+
+    if page < page_count - 1:
+        nav_row.append(
+            InlineKeyboardButton("Следующие ▶️", callback_data="dates_next"))
+
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([
+        InlineKeyboardButton("◀️ Назад к категориям",
+                             callback_data="back_to_categories")
+    ])
+
+    if page_count > 1:
+        title = f"📅 Выберите удобную дату (стр. {page + 1} из {page_count}):"
+    else:
+        title = "📅 Выберите удобную дату:"
+
     await query.edit_message_text(
-        f"💇‍♀️ <b>Услуга:</b> {service_name}\n\n"
-        "📅 Выберите удобную дату:",
-        reply_markup=reply_markup,
+        f"💇‍♀️ <b>Услуга:</b> {service_name}\n"
+        f"{title}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
     )
+
     return SELECT_DATE
 
 
@@ -906,6 +1174,7 @@ async def staff_selected(update: Update,
         context.user_data["yclients_staff_id"] = ""
         context.user_data["assigned_employee_name"] = ""
 
+    context.user_data["date_page"] = 0
     service_name = context.user_data.get("service", "")
     return await _show_date_selection(query, context, service_name)
 
@@ -923,6 +1192,15 @@ async def date_selected(update: Update,
 
     date_str = query.data.replace("date_", "")
     context.user_data["date"] = date_str
+    return await _show_time_selection(query, context, date_str)
+
+
+async def _show_time_selection(query, context, date_str: str) -> int:
+    """Загрузить и показать доступное время для уже выбранной даты.
+
+    Вынесено из date_selected в отдельную функцию, чтобы её мог
+    использовать и back_to_time (возврат с шага ввода имени, если
+    пользователь передумал)."""
     iso_date = to_iso_date(date_str)
 
     yc_staff_id = context.user_data.get("yclients_staff_id", "")
@@ -932,44 +1210,65 @@ async def date_selected(update: Update,
         f"📅 Запрос слотов: Date={iso_date}, Staff={yc_staff_id}, Service={yc_service_id}"
     )
 
+    # Кэш в рамках диалога — см. _NAV_CACHE_TTL: на "Назад к дате" → "туда
+    # же" (тот же service/staff/date) не шлём в YClients повторный
+    # book_times, если с прошлого раза не прошло больше TTL.
+    times_cache_key = (str(yc_service_id), str(yc_staff_id), iso_date)
+    times_cache = context.user_data.get("_times_cache")
+    cache_hit = (times_cache and times_cache["key"] == times_cache_key
+                 and (datetime.now().timestamp() - times_cache["ts"])
+                 < _NAV_CACHE_TTL)
+
     available_slots = []
-    try:
-        # Пытаемся получить слоты от YClients через бэкенд
-        if yc_service_id:
-            # Даже если мастера нет (staff_0), пробуем получить слоты по услуге
-            params = {
-                "service_id": yc_service_id,
-                "date": iso_date,
-            }
-            if yc_staff_id and yc_staff_id != "0":
-                params["staff_id"] = yc_staff_id
+    if cache_hit:
+        available_slots = times_cache["data"]
+    else:
+        await _show_loading(query, "⏳ Ищу свободное время...")
+        try:
+            # Пытаемся получить слоты от YClients через бэкенд
+            if yc_service_id:
+                # Даже если мастера нет (staff_0), пробуем получить слоты по услуге
+                params = {
+                    "service_id": yc_service_id,
+                    "date": iso_date,
+                }
+                if yc_staff_id and yc_staff_id != "0":
+                    params["staff_id"] = yc_staff_id
 
-            resp = requests.get(
-                f"{API_BASE}/api/yclients/available-times",
-                params=params,
-                timeout=10,
-            )
+                resp = requests.get(
+                    f"{API_BASE}/api/yclients/available-times",
+                    params=params,
+                    timeout=10,
+                )
 
-            logger.info(
-                f"YClients API Status: {resp.status_code}, Body: {resp.text[:200]}"
-            )
+                logger.info(
+                    f"YClients API Status: {resp.status_code}, Body: {resp.text[:200]}"
+                )
 
-            if resp.status_code == 200:
-                slots = resp.json()
-                if isinstance(slots, list) and len(slots) > 0:
-                    if isinstance(slots[0], str):
-                        available_slots = slots
-                    elif isinstance(slots[0], dict):
-                        # Фильтруем только доступные слоты
-                        available_slots = [
-                            s["time"] for s in slots
-                            if s.get("available", True)
-                        ]
+                if resp.status_code == 200:
+                    slots = resp.json()
+                    if isinstance(slots, list) and len(slots) > 0:
+                        if isinstance(slots[0], str):
+                            available_slots = slots
+                        elif isinstance(slots[0], dict):
+                            # Фильтруем только доступные слоты
+                            available_slots = [
+                                s["time"] for s in slots
+                                if s.get("available", True)
+                            ]
+                    # Кэшируем даже пустой (но успешный) результат — пустой
+                    # список тоже валиден и не должен провоцировать повторный
+                    # запрос при следующем "Назад" в течение TTL.
+                    context.user_data["_times_cache"] = {
+                        "key": times_cache_key,
+                        "ts": datetime.now().timestamp(),
+                        "data": available_slots,
+                    }
 
-        # УБРАЛИ fallback на старую БД, так как она не синхронизирована с YClients
+            # УБРАЛИ fallback на старую БД, так как она не синхронизирована с YClients
 
-    except Exception as e:
-        logger.error(f"Ошибка при получении слотов: {e}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении слотов: {e}")
 
     # ЕСЛИ СЛОТОВ НЕТ — ЧЕСТНО ГОВОРИМ ОБ ЭТОМ, А НЕ ПОКАЗЫВАЕМ TIME_SLOTS
     if not available_slots:
@@ -1021,33 +1320,35 @@ async def back_to_date(update: Update,
     await query.answer()
     service_name = context.user_data.get("service", "")
     context.user_data.pop("date", None)
+    return await _show_date_selection(query, context, service_name)
 
-    today = date.today()
-    keyboard = []
-    row = []
-    for i in range(14):
-        d = today + timedelta(days=i)
-        label = d.strftime("%d.%m")
-        day_name = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][d.weekday()]
-        btn_text = f"{label} ({day_name})"
-        callback = f"date_{d.strftime('%d.%m.%Y')}"
-        row.append(InlineKeyboardButton(btn_text, callback_data=callback))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    keyboard.append(
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_categories")])
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        f"💇‍♀️ <b>Услуга:</b> {service_name}\n\n"
-        "📅 Выберите удобную дату:",
-        reply_markup=reply_markup,
-        parse_mode="HTML",
-    )
-    return SELECT_DATE
+async def date_page_prev(update: Update,
+                         context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Листание дат назад."""
+    query = update.callback_query
+    await query.answer()
+
+    page = int(context.user_data.get("date_page", 0) or 0)
+    context.user_data["date_page"] = max(0, page - 1)
+
+    service_name = context.user_data.get("service", "")
+
+    return await _show_date_selection(query, context, service_name)
+
+
+async def date_page_next(update: Update,
+                         context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Листание дат вперёд."""
+    query = update.callback_query
+    await query.answer()
+
+    page = int(context.user_data.get("date_page", 0) or 0)
+    context.user_data["date_page"] = page + 1
+
+    service_name = context.user_data.get("service", "")
+
+    return await _show_date_selection(query, context, service_name)
 
 
 async def time_selected(update: Update,
@@ -1065,14 +1366,32 @@ async def time_selected(update: Update,
     time_str = query.data.replace("time_", "")
     context.user_data["time"] = time_str
 
+    keyboard = [[
+        InlineKeyboardButton("◀️ Назад", callback_data="back_to_time")
+    ]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         f"💇‍♀️ <b>Услуга:</b> {context.user_data['service']}\n"
         f"📅 <b>Дата:</b> {context.user_data['date']}\n"
         f"⏰ <b>Время:</b> {time_str}\n\n"
         "👤 Введите ваше имя:",
+        reply_markup=reply_markup,
         parse_mode="HTML",
     )
     return ENTER_NAME
+
+
+async def back_to_time(update: Update,
+                       context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Вернуться к выбору времени с шага ввода имени (пользователь передумал)."""
+    query = update.callback_query
+    await query.answer()
+    date_str = context.user_data.get("date")
+    if not date_str:
+        # На всякий случай, если дата почему-то потерялась — откатываемся дальше.
+        return await back_to_date(update, context)
+    context.user_data.pop("time", None)
+    return await _show_time_selection(query, context, date_str)
 
 
 async def name_received(update: Update,
@@ -1252,6 +1571,8 @@ async def confirm_booking(update: Update,
 
     # Не дублируем уведомления — они идут только по подписке
     payload["no_notify"] = True
+
+    await _show_loading(query, "⏳ Создаю запись...")
 
     try:
         resp = requests.post(f"{API_BASE}/api/bookings",
@@ -1506,6 +1827,8 @@ def main() -> None:
                                      pattern="^back_to_menu$"),
             ],
             SELECT_DATE: [
+                CallbackQueryHandler(date_page_prev, pattern="^dates_prev$"),
+                CallbackQueryHandler(date_page_next, pattern="^dates_next$"),
                 CallbackQueryHandler(date_selected, pattern="^date_"),
                 CallbackQueryHandler(back_to_date, pattern="^back_to_date$"),
                 CallbackQueryHandler(back_to_categories,
@@ -1516,6 +1839,7 @@ def main() -> None:
                 CallbackQueryHandler(back_to_date, pattern="^back_to_date$"),
             ],
             ENTER_NAME: [
+                CallbackQueryHandler(back_to_time, pattern="^back_to_time$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, name_received),
             ],
             ENTER_PHONE: [
