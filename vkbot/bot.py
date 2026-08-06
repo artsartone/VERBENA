@@ -17,10 +17,7 @@ from .handlers import bp as booking_bp
 from vkbottle_types.methods.messages import MessagesSendPeerIdsResponse
 from vkbottle_types.objects import MessagesSendUserIdsResponseItem
 
-MessagesSendPeerIdsResponse.model_rebuild(
-    _types_namespace={
-        "MessagesSendUserIdsResponseItem": MessagesSendUserIdsResponseItem
-    })
+MessagesSendPeerIdsResponse.model_rebuild()
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
