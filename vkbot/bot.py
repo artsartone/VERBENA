@@ -13,10 +13,14 @@ from vkbottle.bot import Bot, Message
 from .config import VK_TOKEN, VK_GROUP_ID, check_config, API_BASE
 from .states import BookingState
 from .handlers import bp as booking_bp
+
 from vkbottle_types.methods.messages import MessagesSendPeerIdsResponse
 from vkbottle_types.objects import MessagesSendUserIdsResponseItem
 
-MessagesSendPeerIdsResponse.model_rebuild()
+MessagesSendPeerIdsResponse.model_rebuild(
+    _types_namespace={
+        "MessagesSendUserIdsResponseItem": MessagesSendUserIdsResponseItem
+    })
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -27,7 +31,6 @@ logger = logging.getLogger("vk_bot")
 
 def main():
     """Запуск VK бота."""
-
     if not check_config():
         logger.critical("Конфигурация VK не завершена!\n"
                         "Установите переменные окружения:\n"
@@ -44,7 +47,6 @@ def main():
                 "╰─────────────────────────────────────────────╯")
 
     bot = Bot(token=VK_TOKEN)
-
     state_dispenser = bot.state_dispenser
 
     booking_bp.load(bot)
