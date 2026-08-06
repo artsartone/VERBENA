@@ -24,7 +24,6 @@ def validate_name(name: str) -> Tuple[bool, str]:
     if not name or len(name.strip()) < 2:
         return False, "Имя должно содержать минимум 2 символа"
 
-    # Разрешаем буквы (кириллица/латиница), пробелы, дефисы, апострофы
     if not re.match(r"^[a-zA-Zа-яА-ЯёЁ\s\-']+$", name.strip()):
         return False, "Имя должно содержать только буквы"
 
@@ -45,10 +44,8 @@ def validate_phone(phone: str) -> Tuple[bool, str]:
     if not phone:
         return False, "Введите номер телефона"
 
-    # Очищаем от всех символов кроме цифр и +
     phone_clean = re.sub(r"[^\d+]", "", phone)
 
-    # Проверяем длину (минимум 10 цифр)
     digits_only = re.sub(r"\D", "", phone_clean)
     if len(digits_only) < 10:
         return False, "Неверный формат телефона (минимум 10 цифр)"

@@ -1,4 +1,3 @@
-// Prevent scroll restoration during preloader
 history.scrollRestoration = "manual";
 
 window.addEventListener("load", () => {
@@ -8,11 +7,6 @@ window.addEventListener("load", () => {
     document.documentElement.style.overflow = "";
     document.body.style.overflow = "";
 
-    // При заходе сразу по ссылке с якорем (например /#reviews) браузер
-    // пытается доскроллить к блоку ещё во время загрузки, пока прелоадер
-    // держит overflow: hidden — скролл не применяется. Раньше здесь всегда
-    // стоял scrollTo(0, 0), который затирал прицел на якорь. Теперь вместо
-    // этого доскролливаем до нужного блока сами, если якорь есть в URL.
     if (location.hash) {
       const target = document.getElementById(location.hash.slice(1));
       if (target) {
@@ -24,15 +18,12 @@ window.addEventListener("load", () => {
       window.scrollTo(0, 0);
     }
 
-    // Restore normal scroll behavior after loader hides
     setTimeout(() => {
       history.scrollRestoration = "auto";
     }, 500);
   }, 2200);
 });
 
-// ─── Данные для галереи ───
-// ─── Данные для галереи ───
 const GALLERY_IMAGES = [
   { src: "img/gallery/XXXL.webp", alt: "Интерьер студии VERBENA" },
   { src: "img/gallery/XXXL1.webp", alt: "Рабочая зона студии" },
@@ -50,7 +41,6 @@ const GALLERY_IMAGES = [
   { src: "img/gallery/XXXL12.webp", alt: "" },
 ];
 
-// ─── Резервные данные на случай, если YClients API недоступен ───
 const FALLBACK_SERVICES_DATA = [
   {
     category: "Маникюр",
@@ -145,18 +135,17 @@ const FALLBACK_SERVICES_DATA = [
   },
 ];
 
-// ─── Динамический рендеринг услуг из API ───
 async function loadAndRenderServices() {
   const grid = document.querySelector(".services-grid");
   if (!grid) return;
   try {
     const [catRes, svcRes] = await Promise.all([
       fetch("/api/service_categories"),
-      fetch("/api/yclients/services"), // ← ИЗМЕНЕНО: используем /api/yclients/services
+      fetch("/api/yclients/services"),
     ]);
 
     const catData = await catRes.json();
-    const services = await svcRes.json(); // ← ИЗМЕНЕНО: чистый массив, не {success, data}
+    const services = await svcRes.json();
 
     const categories = catData.success && catData.data ? catData.data : [];
 
@@ -245,7 +234,6 @@ async function loadAndRenderServices() {
   }
 }
 
-// ─── Рендеринг галереи ───
 function renderGallery() {
   const container = document.querySelector(".gallery-container");
   if (!container) return;
@@ -262,7 +250,7 @@ function renderGallery() {
     );
   }).join("");
 }
-// ─── Галерея ───
+
 let currentImageIndex = 0;
 function updateGallery() {
   const images = document.querySelectorAll(".gallery-img");
@@ -285,9 +273,7 @@ function prevImage() {
   updateGallery();
 }
 
-// ─── Инициализация при загрузке ───
 document.addEventListener("DOMContentLoaded", () => {
-  // Рендеринг динамического контента
   renderGallery();
   loadAndRenderServices(); // ← ЗАМЕНЕНО
 
@@ -321,16 +307,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const bookingGroup = document.querySelector(".hero-booking-group");
 
-  // Раньше здесь один раз при DOMContentLoaded считался пиксельный порог
-  // (через getBoundingClientRect/offsetTop) и потом на каждый scroll
-  // сравнивался с window.scrollY. Проблема такого подхода: число считается
-  // один раз, а раскладка после этого ещё может измениться (скрытие
-  // прелоадера, transform на #page, догрузка шрифтов/картинок) — порог
-  // сбивается, и класс перестаёт появляться до перезагрузки страницы.
-  //
-  // IntersectionObserver ничего не запоминает — он следит за реальным
-  // положением элемента-метки в реальном времени, поэтому не зависит от
-  // того, когда именно завершилась остальная раскладка страницы.
   const heroBtnSentinel = document.createElement("span");
   heroBtnSentinel.setAttribute("aria-hidden", "true");
   heroBtnSentinel.style.cssText =
@@ -352,7 +328,6 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     fixedObserver.observe(heroBtnSentinel);
   } else {
-    // Фолбэк для очень старых браузеров без IntersectionObserver
     function toggleHeroBtnFixed() {
       const ref = heroBtnSentinel.parentElement ? heroBtnSentinel : heroBtn;
       setHeroBtnFixed(ref.getBoundingClientRect().top < 0);
@@ -373,11 +348,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (bookingGroup) {
-    // ─── Определение направления выпадающего меню hero-btn-split ───
-    // На тач-устройствах/мобильных обычное (не фиксированное) меню
-    // раскрывается вниз от кнопки. Здесь решаем, достаточно ли под кнопкой
-    // места на экране, и если нет — разрешаем открываться вверх (класс
-    // "open-up" переворачивает позиционирование в CSS).
     function updateSplitDirection() {
       if (!bookingGroup || bookingGroup.classList.contains("has-fixed")) return;
       const split = bookingGroup.querySelector(".hero-btn-split");
@@ -387,26 +357,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       const gap = 12; // совпадает с отступом в CSS (100% + 12px)
-      // + небольшой запас, чтобы меню не упиралось в самый край экрана
+
       const splitHeight = (split.offsetHeight || 0) + gap + 8;
 
-      // Меню открываем вверх ТОЛЬКО когда снизу не хватает места, а сверху
-      // его больше (или оба варианта тесные — выбираем сторону с бóльшим
-      // запасом). Если снизу достаточно места — как раньше, вниз.
       const openUp = spaceBelow < splitHeight && spaceAbove > spaceBelow;
 
       bookingGroup.classList.toggle("open-up", openUp);
     }
 
-    // Актуальную высоту меню можно гарантированно измерить только когда
-    // оно уже отображено, поэтому пересчитываем и после открытия.
     function openHeroMenu() {
       updateSplitDirection();
       bookingGroup.classList.add("open");
     }
 
-    // Если меню открыто, а окно изменило размер (поворот экрана и т.п.) —
-    // пересчитываем направление, чтобы меню всегда оставалось на экране.
     window.addEventListener("resize", () => {
       if (bookingGroup.classList.contains("open")) {
         updateSplitDirection();
@@ -446,7 +409,6 @@ document.addEventListener("DOMContentLoaded", () => {
     heroBtn.addEventListener("click", (e) => {
       e.stopPropagation();
 
-      // Клик с клавиатуры (Enter/Space)
       if (e.detail === 0) {
         if (bookingGroup.classList.contains("open")) {
           bookingGroup.classList.remove("open");
@@ -465,8 +427,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       heroFixedPress = null;
 
-      // Если было движение пальцем/курсором или долгое удержание —
-      // это скролл/жест, а не нажатие на кнопку
       if (distance > 10 || duration > 500) return;
 
       if (bookingGroup.classList.contains("open")) {
@@ -476,7 +436,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    // Закрытие hero-меню при клике вне его области
     document.addEventListener("click", (e) => {
       if (
         bookingGroup.classList.contains("open") &&
@@ -497,21 +456,19 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       { passive: true },
     );
-    // Найти кнопку "Запись на сайте" внутри hero-btn-split
+
     const siteBtn = document.querySelector(
       ".hero-btn-split-item[data-action='site']",
     );
     if (siteBtn) {
       siteBtn.addEventListener("click", function () {
-        // Закрыть выпадающее меню hero
         if (bookingGroup) bookingGroup.classList.remove("open");
-        // Открыть модалку
+
         var modal = document.getElementById("bookingModal");
         if (modal) {
           if (typeof window.openModal === "function") {
             window.openModal(modal);
           } else {
-            // fallback если modal.js ещё не загрузился
             modal.classList.add("active");
             document.body.style.overflow = "hidden";
             var content = modal.querySelector(".modal-content");
@@ -523,7 +480,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// ─── Отзывы ───
 const REVIEWS_DATA = [
   {
     text: "Хожу сюда на маникюр и брови, ни разу не пожалела. Результатом всегда довольна, аккуратно и качественно. В салоне чисто и по-домашнему уютно. Запись чёткая, можно записаться онлайн, что для меня является важным критерием выбора салона. Отдельное спасибо за вкусный кофе😊",
@@ -669,10 +625,6 @@ function checkExpandableReviews() {
   document.querySelectorAll(".review-card").forEach(updateCardOverflow);
 }
 
-// Замер scrollHeight/clientHeight ненадёжен, пока не догрузились кастомные
-// шрифты (Poppins/Cormorant) — до этого момента ширина символов другая,
-// и перенос строк ещё "чужой". Ждём fonts.ready и даём браузеру ещё один
-// кадр на отрисовку с финальным шрифтом перед замером.
 function scheduleOverflowCheck(fn) {
   const ready =
     document.fonts && document.fonts.ready
@@ -709,7 +661,6 @@ function rotateOneReview() {
   const newReviews = currentReviews.slice();
   newReviews[cardIndex] = newReview;
 
-  // Плавное исчезновение
   card.style.transition =
     "opacity 0.7s ease, transform 0.7s cubic-bezier(0.4, 0, 0.2, 1)";
   card.style.opacity = "0";
@@ -790,7 +741,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// ─── Контакты ───
 document.addEventListener("DOMContentLoaded", function () {
   var contactsBtn = document.querySelector(".side-nav-contacts-btn");
   var contactsPopup = document.getElementById("contactsPopup");
@@ -827,7 +777,6 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-// ─── Кнопка "Присоединиться" в side-nav ───
 document.addEventListener("DOMContentLoaded", function () {
   var sideNavCareerBtn = document.querySelector(".side-nav-career-btn");
   if (!sideNavCareerBtn) return;
@@ -841,16 +790,13 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 });
 
-// ─── Наследование пунктов навигации в mobile-nav ───
 document.addEventListener("DOMContentLoaded", function () {
   var mobileNav = document.querySelector(".mobile-nav");
   var desktopNav = document.querySelector("nav ul");
   if (!mobileNav || !desktopNav) return;
 
-  // Очищаем mobile-nav
   mobileNav.innerHTML = "";
 
-  // Иконки для пунктов меню
   var icons = {
     "#about":
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -864,7 +810,6 @@ document.addEventListener("DOMContentLoaded", function () {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   };
 
-  // Клонируем ссылки из десктопной навигации
   var links = desktopNav.querySelectorAll("a[href^='#']");
   links.forEach(function (link) {
     var href = link.getAttribute("href");
@@ -878,13 +823,11 @@ document.addEventListener("DOMContentLoaded", function () {
     mobileNav.appendChild(a);
   });
 
-  // Добавляем кнопку "Контакты"
   var contactsBtn = document.createElement("button");
   contactsBtn.className = "mobile-nav-contacts-btn mobile-nav-link";
   contactsBtn.innerHTML = icons["contacts"] + "<span>Контакты</span>";
   mobileNav.appendChild(contactsBtn);
 
-  // Добавляем кнопку "Ищем мастера"
   var careerBtn = document.createElement("button");
   careerBtn.className = "mobile-nav-link mobile-nav-career-btn";
   careerBtn.setAttribute("data-open-career", "");
@@ -892,7 +835,6 @@ document.addEventListener("DOMContentLoaded", function () {
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg><span>Ищем мастера</span>';
   mobileNav.appendChild(careerBtn);
 
-  // Добавляем кнопку "Записаться"
   var bookingBtn = document.createElement("button");
   bookingBtn.className = "mobile-nav-link";
   bookingBtn.innerHTML = icons["booking"] + "<span>Записаться</span>";
@@ -905,7 +847,6 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   mobileNav.appendChild(bookingBtn);
 
-  // Обработчик для кнопки контактов
   var contactsPopup = document.getElementById("contactsPopup");
   var contactsOverlay = document.getElementById("contactsOverlay");
   if (contactsPopup) {
@@ -917,7 +858,6 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
-// ═══════════ SCHEDULE SECTION ═══════════
 (function () {
   const mastersGrid = document.getElementById("mastersGrid");
   const currentDateEl = document.getElementById("currentDate");
@@ -962,10 +902,6 @@ document.addEventListener("DOMContentLoaded", function () {
     return `${year}-${month}-${day}`;
   }
 
-  // ─── Категории мастеров (для шапки карточки в расписании) ───
-  // Строим карту staffId → [названия категорий] на основе того, какие
-  // услуги (со своим category_id) привязаны к мастеру. Загружается один
-  // раз и кэшируется — состав услуг/категорий за сессию не меняется.
   let staffCategoryMap = null;
   let staffCategoryPromise = null;
 
@@ -1029,11 +965,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     try {
       const controller = new AbortController();
-      // Первый (некэшированный на бэкенде) запрос на дату может идти
-      // долго — бэкенд последовательно опрашивает YClients по каждой
-      // услуге и мастеру. Повторные запросы за ту же дату попадают в
-      // 5-минутный кэш на сервере и отвечают почти мгновенно, поэтому
-      // даём первому запросу больше времени.
+
       const timeoutId = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(`/api/public/free-slots?date=${dateStr}`, {
         signal: controller.signal,
@@ -1042,15 +974,12 @@ document.addEventListener("DOMContentLoaded", function () {
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error("Ошибка сети");
       const data = await res.json();
-      // Категории не критичны для отображения слотов, поэтому не
-      // задерживаем основной запрос и не валим его при сбое подгрузки карты.
+
       const categoryMap = await loadStaffCategoryMap();
       renderMasters(data.staff, dateStr, categoryMap);
     } catch (e) {
       console.error("Fetch error:", e);
-      // Один автоматический повтор: если это был обрыв по таймауту
-      // на «холодном» запросе, повтор почти наверняка попадёт в уже
-      // прогретый кэш на бэкенде и отработает быстро.
+
       if (!isRetry) {
         fetchFreeSlots(true);
         return;
@@ -1134,8 +1063,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (hasSlots) {
         slotsHtml = s.free_slots
           .map((slot) => {
-            // Подстраховка от расхождения форматов ответа бэкенда:
-            // строка "10:00", объект {time: "10:00"} или старый {from, to}.
             const t =
               typeof slot === "string"
                 ? slot
@@ -1148,9 +1075,8 @@ document.addEventListener("DOMContentLoaded", function () {
           })
           .join("");
       } else {
-        // Этот блок теперь не должен выполняться, т.к. бэкенд фильтрует
-        // Но оставим на случай, если данные придут пустыми
-        return; // пропускаем мастера без слотов
+        return;
+        л;
       }
 
       const categories = categoryMap[String(s.id)] || [];
@@ -1169,7 +1095,6 @@ document.addEventListener("DOMContentLoaded", function () {
       mastersGrid.appendChild(card);
     });
 
-    // Обработчики кликов по слотам
     document.querySelectorAll(".slot-chip").forEach((chip) => {
       chip.addEventListener("click", () => handleSlotClick(chip));
       chip.addEventListener("keypress", (e) => {
@@ -1187,8 +1112,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const staffId = chip?.dataset.staff;
     const date = chip?.dataset.date;
     const time = chip?.dataset.time;
-    // openBookingFromSlot (modal.js) подставит мастера/дату/время сам,
-    // как только будет выбрана услуга — останутся только имя и телефон.
+
     if (
       staffId &&
       date &&
@@ -1210,23 +1134,13 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // ─── Доступные даты для дневного календаря ───
-  // Тут, в отличие от модалки записи, нет конкретной услуги/мастера —
-  // календарь общий для всех мастеров сразу. Готовой ручки-агрегата
-  // "какие дни в месяце свободны хоть у кого-то" в API нет, зато есть
-  // тот же /api/public/free-slots, которым и так пользуется расписание —
-  // дёргаем его по каждому дню месяца (кроме прошедших — они и так
-  // задизейблены) с ограниченной параллельностью. Бэкенд кэширует ответы
-  // на 5 минут, так что повторное открытие календаря в течение этого
-  // времени отвечает быстро.
-  let monthAvailabilityCache = {}; // "YYYY-MM" -> {"YYYY-MM-DD": true} | null
+  let monthAvailabilityCache = {};
 
   async function getMonthAvailability(year, month) {
     const key = `${year}-${String(month + 1).padStart(2, "0")}`;
     if (monthAvailabilityCache[key]) return monthAvailabilityCache[key];
 
     try {
-      // Один запрос на весь месяц вместо 30 отдельных
       const res = await fetch(
         `/api/public/available-dates?year=${year}&month=${month + 1}`,
       );
@@ -1236,7 +1150,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const result = {};
       if (Array.isArray(dates)) {
         dates.forEach((d) => {
-          result[d] = true; // Помечаем дату как доступную
+          result[d] = true;
         });
       }
       monthAvailabilityCache[key] = result;
@@ -1248,20 +1162,16 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // ─── Календарь для выбора даты ───
   function createScheduleCalendar() {
     if (scheduleCalendar) return scheduleCalendar;
 
     scheduleCalendar = document.createElement("div");
     scheduleCalendar.className = "schedule-calendar";
     scheduleCalendar.style.display = "none";
-    // На случай, если внешний CSS не задаёт box-sizing: border-box —
-    // без этого паддинги/бордеры ячеек могут вытолкнуть дни за пределы
-    // блока фиксированной ширины (calWidth в positionCalendar).
+
     scheduleCalendar.style.boxSizing = "border-box";
     document.body.appendChild(scheduleCalendar);
 
-    // Пересчёт позиции при изменении размера окна
     const reposition = () => {
       if (calendarVisible && scheduleCalendar) {
         positionCalendar();
@@ -1269,11 +1179,6 @@ document.addEventListener("DOMContentLoaded", function () {
     };
     window.addEventListener("resize", reposition, { passive: true });
 
-    // При скролле страницы закрываем календарь, а не пытаемся его
-    // репозиционировать «на лету» — на мобильных событие scroll во время
-    // инерционной прокрутки приходит с задержкой, из-за чего календарь
-    // визуально «тащится» вместе со страницей вместо того, чтобы стоять
-    // на месте или мгновенно следовать за кнопкой.
     window.addEventListener(
       "scroll",
       () => {
@@ -1285,9 +1190,6 @@ document.addEventListener("DOMContentLoaded", function () {
     return scheduleCalendar;
   }
 
-  // Токен защищает от гонки: если пользователь быстро переключил месяц
-  // (или закрыл календарь) до того, как пришли ответы про доступность,
-  // устаревший ответ не должен перезаписать уже актуальный рендер.
   let scheduleCalendarRenderToken = 0;
 
   const scheduleMonthNames = [
@@ -1308,9 +1210,6 @@ document.addEventListener("DOMContentLoaded", function () {
   const scheduleDayCellStyle =
     "box-sizing:border-box;min-width:0;width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;overflow:hidden;";
 
-  // availability: null — не фильтруем (запрос ещё не завершился или не
-  // удался); объект вида {"YYYY-MM-DD": true} — ключ есть ТОЛЬКО у
-  // доступных дат (так их отдаёт API); отсутствие ключа = дата недоступна.
   function buildScheduleCalendarHtml(year, month, availability) {
     const firstDay = new Date(year, month, 1);
     let startDay = firstDay.getDay() - 1;
@@ -1360,9 +1259,6 @@ document.addEventListener("DOMContentLoaded", function () {
     return html;
   }
 
-  // Лоадер вместо сетки дней, пока не пришла реальная занятость по
-  // месяцу — чтобы не показывать сначала все даты кликабельными, а через
-  // мгновение резко задизейбливать часть из них.
   function buildScheduleCalendarLoaderHtml() {
     return `
       <div class="sc-loader">
@@ -1373,7 +1269,6 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function attachScheduleCalendarHandlers(cal, year, month) {
-    // Обработчики навигации
     cal.querySelector(".sc-prev")?.addEventListener("click", (e) => {
       e.stopPropagation();
       currentDate.setMonth(currentDate.getMonth() - 1);
@@ -1388,7 +1283,6 @@ document.addEventListener("DOMContentLoaded", function () {
       positionCalendar();
     });
 
-    // Обработчики выбора дня
     cal
       .querySelectorAll(".sc-day:not(.sc-empty):not(.sc-disabled)")
       .forEach((el) => {
@@ -1409,14 +1303,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const month = viewDate.getMonth();
     const myToken = ++scheduleCalendarRenderToken;
 
-    // 1) Пока не пришла реальная занятость по месяцу — показываем лоадер,
-    //    а не сам календарь (иначе сначала все даты кликабельны, а через
-    //    миг часть из них резко становится серой — нелогично).
     cal.innerHTML = buildScheduleCalendarLoaderHtml();
     if (calendarVisible) positionCalendar();
 
-    // 2) Подгружаем занятость по дням месяца и только теперь показываем
-    //    календарь — сразу с итоговым состоянием.
     const availability = await getMonthAvailability(year, month);
     if (myToken !== scheduleCalendarRenderToken) return; // уже неактуально
     cal.innerHTML = buildScheduleCalendarHtml(year, month, availability);
@@ -1432,24 +1321,19 @@ document.addEventListener("DOMContentLoaded", function () {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    // Вычисляем позицию
     let left = rect.left + rect.width / 2 - calWidth / 2;
     let top = rect.bottom + 8;
 
-    // Проверяем, не выходит ли календарь за правый край
     if (left + calWidth > viewportWidth - 16) {
       left = viewportWidth - calWidth - 16;
     }
 
-    // Проверяем, не выходит ли за левый край
     if (left < 16) {
       left = 16;
     }
 
-    // Проверяем, не выходит ли за нижний край
     const calHeight = scheduleCalendar.offsetHeight || 300;
     if (top + calHeight > viewportHeight - 16) {
-      // Если не помещается снизу, показываем сверху
       top = rect.top - calHeight - 8;
     }
 
@@ -1465,7 +1349,7 @@ document.addEventListener("DOMContentLoaded", function () {
     renderScheduleCalendar();
     cal.style.display = "block";
     calendarVisible = true;
-    // Пересчитываем позицию после отображения
+
     requestAnimationFrame(() => positionCalendar());
   }
 
@@ -1484,13 +1368,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Клик по дате - показать/скрыть календарь
   currentDateEl.addEventListener("click", (e) => {
     e.stopPropagation();
     toggleCalendar();
   });
 
-  // Клик вне календаря - скрыть
   document.addEventListener("click", (e) => {
     if (
       calendarVisible &&
@@ -1502,18 +1384,15 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // ─── Начальное состояние: сразу показываем свободные окна ───
   fetchFreeSlots();
 })();
 
-// ─── Скрытие mobile-nav по тапу вне панели ───
 document.addEventListener("click", function (e) {
   const mobileNav = document.querySelector(".mobile-nav");
   const mobileNavToggle = document.querySelector(".mobile-nav-toggle");
 
   if (!mobileNav) return;
 
-  // Клик по кнопке открытия/закрытия — переключаем панель
   const toggleBtn = e.target.closest(".mobile-nav-toggle");
   if (toggleBtn) {
     const isHidden = mobileNav.classList.toggle("is-hidden");
@@ -1521,20 +1400,16 @@ document.addEventListener("click", function (e) {
     return;
   }
 
-  // Если панель сейчас открыта
   if (!mobileNav.classList.contains("is-hidden")) {
-    // Клик внутри самой панели — не скрываем
     if (e.target.closest(".mobile-nav")) {
       return;
     }
 
-    // Клик вне панели — скрываем
     mobileNav.classList.add("is-hidden");
     mobileNavToggle?.classList.remove("is-active");
   }
 });
 
-/* ═══════════ Custom page scrollbar ═══════════ */
 (function () {
   function initCustomPageScrollbar() {
     if (document.documentElement.dataset.customPageScrollbar) return;
@@ -1614,10 +1489,6 @@ document.addEventListener("click", function (e) {
       });
     }
 
-    /*
-      capture: true важен, чтобы ловить scroll даже если он
-      происходит не на window, а на document/body.
-    */
     document.addEventListener("scroll", scheduleUpdate, {
       passive: true,
       capture: true,
@@ -1638,16 +1509,11 @@ document.addEventListener("click", function (e) {
       resizeObserver.observe(document.documentElement);
     }
 
-    /*
-      Так как у вас есть прелоадер и динамический контент,
-      обновляем расчёт после возможных изменений layout.
-    */
     setTimeout(scheduleUpdate, 2300);
     setTimeout(scheduleUpdate, 3200);
 
     updateScrollbar();
 
-    /* Клик по пустому треку */
     scrollbar.addEventListener("pointerdown", (e) => {
       if (e.target !== scrollbar) return;
 
@@ -1668,7 +1534,6 @@ document.addEventListener("click", function (e) {
       scheduleUpdate();
     });
 
-    /* Начало перетаскивания ползунка */
     thumb.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
 
@@ -1686,7 +1551,6 @@ document.addEventListener("click", function (e) {
       e.stopPropagation();
     });
 
-    /* Движение ползунка */
     function onDragMove(e) {
       if (!dragging) return;
 
@@ -1698,11 +1562,6 @@ document.addEventListener("click", function (e) {
 
       const target = dragStartScroll + (delta / maxTop) * scrollMax;
 
-      /*
-        behavior: "auto" обязательно.
-        Иначе из-за html { scroll-behavior: smooth; }
-        ползунок будет двигаться с анимацией и "лагать".
-      */
       window.scrollTo({
         top: target,
         behavior: "auto",
@@ -1724,10 +1583,6 @@ document.addEventListener("click", function (e) {
 
     thumb.addEventListener("pointermove", onDragMove);
 
-    /*
-      Фолбэк на window: если pointer capture по какой-то причине
-      не сработал, перетаскивание всё равно продолжится.
-    */
     window.addEventListener("pointermove", onDragMove, { passive: true });
     window.addEventListener("pointerup", endDrag, { passive: true });
     window.addEventListener("pointercancel", endDrag, { passive: true });

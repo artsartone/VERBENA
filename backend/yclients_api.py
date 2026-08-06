@@ -10,34 +10,16 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# ─── Constants ───
 YCLIENTS_API_BASE = "https://api.yclients.com/api/v1"
 YCLIENTS_PARTNER_TOKEN = os.environ.get("YCLIENTS_PARTNER_TOKEN")
 YCLIENTS_USER_TOKEN = os.environ.get("YCLIENTS_USER_TOKEN")
 YCLIENTS_COMPANY_ID = os.environ.get("YCLIENTS_COMPANY_ID")
 
-# For backward compatibility
 YCLIENTS_TOKEN = YCLIENTS_PARTNER_TOKEN
 
-# ─── Общий ограничитель скорости запросов к YClients ───
-# YClients документирует жёсткий лимит: не более 5 запросов в секунду на IP
-# (https://yclientsen.docs.apiary.io/). Раньше параллелизм ограничивался
-# только локально, внутри одного расчёта (_YC_MAX_WORKERS в app.py) — но
-# это не защищает от превышения лимита, когда одновременно работают
-# НЕСКОЛЬКО независимых источников запросов: фоновый прогрев кэша,
-# реальные посетители страницы расписания, форма записи, админка и т.д.
-# Каждый по отдельности укладывался в свой локальный лимит, а суммарно —
-# нет. На проде (больше услуг/мастеров в реальном аккаунте + реальный
-# трафик поверх фонового прогрева) это легко превышает 5 req/sec, отсюда
-# и медленные/ошибочные ответы, которых нет в локальном тесте с маленьким
-# тестовым аккаунтом и без параллельного трафика.
-#
-# Это единственная точка, через которую идут вообще все запросы модуля
-# (_request_with_retry), поэтому лимит соблюдается глобально для всего
-# процесса, а не только внутри одной функции.
-_RATE_LIMIT_PER_SEC = 3  # было 4 — судя по логам, и этого оказалось мало
+_RATE_LIMIT_PER_SEC = 3
 _rate_lock = threading.Lock()
-_rate_window = collections.deque()  # timestamps последних запросов
+_rate_window = collections.deque()
 
 
 def _rate_limit_wait():
@@ -108,9 +90,6 @@ def _headers():
     }
 
 
-# ─── Service Categories ───
-
-
 def get_service_categories(error_flag=None):
 
     if not YCLIENTS_PARTNER_TOKEN or not YCLIENTS_USER_TOKEN:
@@ -139,9 +118,6 @@ def get_service_categories(error_flag=None):
         if error_flag is not None:
             error_flag.append(True)
         return []
-
-
-# ─── Services ───
 
 
 def get_services(category_id=None, error_flag=None):
@@ -186,10 +162,6 @@ def get_bookable_services(error_flag=None):
         if error_flag is not None: error_flag.append(True)
         return []
 
-    # ВАЖНО: /services/{company_id} — устаревшая (deprecated) ручка каталога
-    # услуг из CRM-группы API. Для списка услуг, доступных именно для
-    # онлайн-записи, YClients предоставляет отдельную ручку виджета
-    # book_services/{company_id} — её и нужно использовать здесь.
     url = f"{YCLIENTS_API_BASE}/book_services/{YCLIENTS_COMPANY_ID}"
     try:
         resp = _request_with_retry("get", url, headers=_headers())
@@ -197,8 +169,6 @@ def get_bookable_services(error_flag=None):
             data = resp.json()
             payload = data.get("data", []) if isinstance(data, dict) else data
 
-            # book_services может вернуть либо плоский список услуг, либо
-            # список категорий с вложенным services[] — поддержим оба формата.
             services = []
             if isinstance(payload, list):
                 for item in payload:
@@ -207,14 +177,11 @@ def get_bookable_services(error_flag=None):
                     elif isinstance(item, dict):
                         services.append(item)
 
-            # Фильтруем только активные (если поле active вообще присутствует)
             active_services = [
                 s for s in services
                 if s.get("active") in (1, True, "1", "true", "True")
             ]
 
-            # Если активных нет (например, поля active нет в этом формате
-            # ответа), возвращаем все, чтобы не сломать логику
             if not active_services:
                 return services
 
@@ -222,7 +189,8 @@ def get_bookable_services(error_flag=None):
         else:
             status = resp.status_code if resp else "no response"
             body = resp.text[:200] if resp else ""
-            logger.error(f"YClients book_services error: HTTP {status} - {body}")
+            logger.error(
+                f"YClients book_services error: HTTP {status} - {body}")
             if error_flag: error_flag.append(True)
             return []
     except Exception as e:
@@ -265,9 +233,6 @@ def extract_active_staff(services, active_only=True):
     return list(staff_map.values())
 
 
-# ─── Staff (legacy, kept for compatibility) ───
-
-
 def get_staff():
 
     return get_all_staff_from_services()
@@ -293,8 +258,7 @@ def _book_staff_request(ids, error_flag=None):
             f"YClients book_staff HTTP {status} для {len(ids)} service_ids "
             f"(ids={ids}) - {body}")
         if error_flag is not None and status != 422:
-            # 422 обрабатывается вызывающей стороной через бисекцию, это
-            # не "настоящая" ошибка запроса — не поднимаем error_flag здесь.
+
             error_flag.append(True)
         return status, None
     except Exception as e:
@@ -325,8 +289,7 @@ def _book_staff_bisect(ids, error_flag=None, _depth=0):
         return data or []
 
     if status != 422:
-        # Не про валидацию (429 после исчерпания ретраев, 5xx, сеть) —
-        # дальше бисектить бессмысленно, ошибка уже учтена в error_flag.
+
         return []
 
     if len(ids) == 1:
@@ -378,9 +341,6 @@ def get_staff_for_booking(service_id=None, error_flag=None):
     return _book_staff_bisect(ids, error_flag=error_flag)
 
 
-# ─── Staff Timetable (расписание мастера на дату) ───
-
-
 def get_staff_timetable(staff_id, date_str, error_flag=None):
     """GET /timetable/seances/{company_id}/{staff_id}/{date}.
 
@@ -415,8 +375,7 @@ def get_staff_timetable(staff_id, date_str, error_flag=None):
             status = resp.status_code if resp is not None else "no response"
             body = resp.text[:200] if resp is not None else ""
             if status == 404:
-                # Мастер без графика на эту дату / нет журнала — не
-                # инфраструктурная ошибка, не поднимаем error_flag.
+
                 logger.info(
                     f"YClients timetable: мастер {staff_id} без графика "
                     f"на {date_str} — HTTP 404")
@@ -433,9 +392,6 @@ def get_staff_timetable(staff_id, date_str, error_flag=None):
         return []
 
 
-# ─── Available Times ───
-
-
 def get_available_times(service_id, staff_id, date_str, error_flag=None):
     """
     ШАГ 2: Получает доступное время для записи на конкретную дату к выбранному мастеру.
@@ -447,20 +403,17 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
         if error_flag is not None: error_flag.append(True)
         return []
 
-    # Гарантируем формат YYYY-MM-DD для URL
     if "." in date_str:
         parts = date_str.split(".")
         date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
 
     url = f"{YCLIENTS_API_BASE}/book_times/{YCLIENTS_COMPANY_ID}/{staff_id}/{date_str}"
 
-    # --- Правильная обработка списка или одиночного ID ---
     params = []
     if service_id:
         ids = service_id if isinstance(service_id,
                                        (list, tuple, set)) else [service_id]
         params.extend(("service_ids[]", sid) for sid in ids)
-    # -----------------------------------------------------
 
     try:
         resp = _request_with_retry("get",
@@ -477,7 +430,7 @@ def get_available_times(service_id, staff_id, date_str, error_flag=None):
             return times
 
         elif resp is not None and resp.status_code == 404:
-            # 404 — мастер не работает в этот день или нет слотов под эту услугу
+
             return []
 
         else:
@@ -509,7 +462,7 @@ def get_staff_schedule(start_date, end_date, staff_ids=None, error_flag=None):
         "end_date": end_date.strftime("%Y-%m-%d"),
     }
     if staff_ids:
-        # staff_ids может быть строкой, int, или списком
+
         ids = staff_ids if isinstance(staff_ids,
                                       (list, tuple, set)) else [staff_ids]
         params["staff_ids[]"] = ids
@@ -527,7 +480,7 @@ def get_staff_schedule(start_date, end_date, staff_ids=None, error_flag=None):
                 logger.warning("YClients schedule: unexpected response format")
                 return {}
         elif resp is not None and resp.status_code == 404:
-            # 404 может значить, что мастеров нет или они не работают в этот период
+
             return {}
         else:
             status = resp.status_code if resp is not None else "no response"
@@ -542,7 +495,6 @@ def get_staff_schedule(start_date, end_date, staff_ids=None, error_flag=None):
         return {}
 
 
-# ─── Available Dates ───
 def get_available_dates(service_id=None,
                         staff_id=None,
                         month=None,
@@ -574,22 +526,18 @@ def get_available_dates(service_id=None,
     month = month or now.month
     year = year or now.year
 
-    # Поддерживаем и один ID, и список/множество ID. Если ничего не
-    # передано — фильтр по услугам просто не отправляется (см. докстринг).
     ids = []
     if service_id:
-        ids = list(service_id) if isinstance(
-            service_id, (list, tuple, set)) else [service_id]
+        ids = list(service_id) if isinstance(service_id,
+                                             (list, tuple,
+                                              set)) else [service_id]
 
     url = f"{YCLIENTS_API_BASE}/book_dates/{YCLIENTS_COMPANY_ID}"
 
-    # date_from/date_to на весь месяц — YClients реально возвращает данные
-    # по этим параметрам (проверено вручную), а не по одиночному date=.
     last_day = calendar.monthrange(year, month)[1]
     date_from = f"{year:04d}-{month:02d}-01"
     date_to = f"{year:04d}-{month:02d}-{last_day:02d}"
 
-    # ВАЖНО: используем список кортежей, а не словарь, для корректной отправки нескольких service_ids[]
     params = [("date_from", date_from), ("date_to", date_to)]
     for sid in ids:
         params.append(("service_ids[]", sid))
@@ -614,7 +562,7 @@ def get_available_dates(service_id=None,
             dates_data = []
             for item in raw_dates:
                 if isinstance(item, (int, float)):
-                    # Если YClients вернул Unix-таймстемпы
+
                     dates_data.append(
                         datetime.fromtimestamp(
                             item, tz=timezone.utc).strftime("%Y-%m-%d"))
@@ -623,7 +571,7 @@ def get_available_dates(service_id=None,
             return dates_data
 
         elif resp is not None and resp.status_code == 404:
-            # 404 — легитимный ответ: в этом месяце нет свободных дат
+
             return []
         else:
             status = resp.status_code if resp is not None else "no response"
@@ -636,9 +584,6 @@ def get_available_dates(service_id=None,
         logger.error(f"YClients available dates exception: {e}")
         if error_flag is not None: error_flag.append(True)
         return []
-
-
-# ─── Create Booking (Record) ───
 
 
 def create_booking(
@@ -658,7 +603,6 @@ def create_booking(
 
     url = f"{YCLIENTS_API_BASE}/book_record/{YCLIENTS_COMPANY_ID}"
 
-    # Формируем payload строго по структуре YClients
     payload = {
         "phone":
         client_phone,
@@ -667,11 +611,11 @@ def create_booking(
         "email":
         client_email,
         "appointments": [{
-            "id": 1,  # Временный ID для связки услуг
+            "id": 1,
             "services": [int(service_id)],
             "staff_id": int(staff_id),
             "datetime": f"{date_str}T{time_str}:00",
-            "seance_length": 3600,  # Длительность по умолчанию, можно уточнять
+            "seance_length": 3600,
         }],
     }
     if comment and comment.strip():
@@ -683,7 +627,6 @@ def create_booking(
         _rate_limit_wait()
         resp = requests.post(url, headers=_headers(), json=payload, timeout=15)
 
-        # ... внутри функции create_booking, блок обработки успеха ...
         if resp.status_code in (200, 201):
             data = resp.json()
             if not data.get("success", False):
@@ -696,7 +639,6 @@ def create_booking(
 
             record_data = data.get("data", {})
 
-            # Корректное извлечение ID и HASH (учитывая структуру ответа YClients)
             record_id = None
             record_hash = None
 
@@ -714,7 +656,6 @@ def create_booking(
                 f"YClients booking created: id={record_id}, hash={record_hash}"
             )
 
-            # ВАЖНО: Возвращаем ОБА значения
             return {
                 "success": True,
                 "record_id": str(record_id) if record_id else None,
@@ -734,9 +675,6 @@ def create_booking(
     except Exception as e:
         logger.error(f"YClients create booking exception: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
-
-
-# ─── Health check ───
 
 
 def check_connection():

@@ -23,12 +23,17 @@ TELEGRAM_API_BASE = "https://api.telegram.org"
 def send_telegram_notification(chat_id: str, text: str) -> bool:
     """Отправить одно текстовое уведомление. Возвращает True/False (не бросает)."""
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("BOT_TOKEN не задан — уведомление в Telegram не отправлено")
+        logger.error(
+            "BOT_TOKEN не задан — уведомление в Telegram не отправлено")
         return False
     try:
         resp = requests.post(
             f"{TELEGRAM_API_BASE}/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML"
+            },
             timeout=10,
         )
         if resp.status_code != 200:

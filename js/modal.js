@@ -1,4 +1,3 @@
-// ─── Модальные окна — пошаговая форма ───
 document.addEventListener("DOMContentLoaded", () => {
   const bookingModal = document.getElementById("bookingModal");
   const bookingBtn = document.getElementById("bookingBtn");
@@ -18,21 +17,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const timeSelectWrap = document.getElementById("timeSelectWrap");
   const timeOptions = document.getElementById("timeSelectOptions");
 
-  // ─── YClients cache ───
   var ycServices = [],
     ycCategories = [];
   window.ycServiceMap = {};
   window.ycStaffMap = {};
   var ycServiceStaffIds = {};
 
-  // ─── State ───
   var selectedService = null;
   var selectedStaffId = null;
-  // Данные из клика по слоту в публичном расписании (мастер+дата+время).
-  // Услугу оттуда узнать нельзя — карточка мастера в расписании
-  // объединяет его свободные окна по всем услугам сразу. Подставляется
-  // автоматически, как только пользователь выберет услугу, которую этот
-  // мастер выполняет.
+
   var pendingSlotPrefill = null;
 
   function isoToDisplayDate(iso) {
@@ -51,11 +44,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return "";
   }
 
-  // ─── Disable/enable a field group ───
-  // Важно: opacity/pointer-events блокируют только мышь и тач.
-  // Клавиатурный Tab-фокус (и скрытые нативные <select>) их игнорируют,
-  // поэтому дополнительно реально дизейблим все интерактивные элементы —
-  // это убирает их из Tab-порядка и блокирует любое взаимодействие.
   function setFieldEnabled(groupId, enabled) {
     var group = document.getElementById(groupId);
     if (!group) return;
@@ -68,7 +56,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  // ─── Reset all fields to initial state (only service active) ───
   function resetForm() {
     pendingSlotPrefill = null;
     selectedService = null;
@@ -94,7 +81,6 @@ document.addEventListener("DOMContentLoaded", () => {
     setFieldEnabled("step-personal", false);
   }
 
-  // ─── After service selected ───
   function onServiceSelected(svc) {
     selectedService = svc;
     selectedStaffId = null;
@@ -115,7 +101,6 @@ document.addEventListener("DOMContentLoaded", () => {
     timeOptions.innerHTML = "";
     timeOptions.style.display = "none";
 
-    // ─── Автоподстановка мастера/даты/времени из клика по слоту ───
     if (pendingSlotPrefill) {
       var prefill = pendingSlotPrefill;
       var staffIds = (ycServiceStaffIds[svc.id] || []).map(String);
@@ -125,21 +110,15 @@ document.addEventListener("DOMContentLoaded", () => {
         window.tryLoadTimes().then(function () {
           var btn =
             timeOptions &&
-            timeOptions.querySelector(
-              '[data-time="' + prefill.time + '"]',
-            );
+            timeOptions.querySelector('[data-time="' + prefill.time + '"]');
           if (btn) btn.click();
         });
-        // Разово — дальше пользователь распоряжается формой сам.
+
         pendingSlotPrefill = null;
       }
-      // Если мастер не выполняет выбранную услугу — оставляем
-      // pendingSlotPrefill: вдруг пользователь передумает и выберет
-      // другую услугу, которую этот мастер как раз делает.
     }
   }
 
-  // ─── After master selected ───
   function onMasterSelected(staffId) {
     selectedStaffId = String(staffId);
     var opt = masterSelect.querySelector('option[value="' + staffId + '"]');
@@ -156,11 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
     timeOptions.style.display = "none";
   }
 
-  // ─── Populate services ───
-  // filterStaffId (опционально): если задан — показываем только услуги,
-  // которые выполняет этот мастер (используется при заходе через клик по
-  // слоту в публичном расписании). Без параметра — полный список, как и
-  // раньше (кнопка "Записаться" и т.п. этот параметр не передают).
   function populateServices(filterStaffId) {
     if (
       !serviceOptions ||
@@ -214,7 +188,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ─── Populate masters ───
   function populateMasters(filterServiceId) {
     if (!masterOptions) return;
     masterOptions.innerHTML = "";
@@ -254,9 +227,6 @@ document.addEventListener("DOMContentLoaded", () => {
     serviceOptions.closest(".service-select")?.classList.toggle("is-open");
   });
 
-  // Переносим панель мастеров в <body> и позиционируем координатами,
-  // как уже сделано для времени — иначе position:fixed внутри
-  // трансформированной .modal-content ведёт себя непредсказуемо.
   if (masterOptions) {
     masterOptions.style.display = "none";
     document.body.appendChild(masterOptions);
@@ -283,7 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
       masterOptions.style.display = "none";
     }
   });
-  // Reposition master options on modal scroll
+
   var masterReposition = function () {
     repositionDropdown(masterOptions, masterToggle);
   };
@@ -309,7 +279,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // ─── Load YClients data ───
   async function loadYClientsData() {
     var base = getApiBase();
     try {
@@ -348,7 +317,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // ─── Try load times (called after date selected) ───
   window.tryLoadTimes = async function () {
     if (
       !selectedService ||
@@ -402,14 +370,14 @@ document.addEventListener("DOMContentLoaded", () => {
         e.selected = true;
         timeSelect.appendChild(e);
       }
-      // Build custom buttons
+
       buildTimeButtons(
         slots.filter(function (sl) {
           return sl && sl.time && sl.available !== false;
         }),
       );
       timeSelect.disabled = false;
-      // Always enable time and personal after response (even if no slots)
+
       setFieldEnabled("step-time", true);
       if (hasAvail) {
         setFieldEnabled("step-personal", true);
@@ -419,20 +387,18 @@ document.addEventListener("DOMContentLoaded", () => {
       timeSelect.innerHTML =
         '<option value="" selected disabled>Ошибка загрузки</option>';
       timeSelect.disabled = false;
-      // Enable time even on error so user can see the error message
+
       setFieldEnabled("step-time", true);
     }
   };
 
   window.loadAvailableTimes = window.tryLoadTimes;
 
-  // Move timeOptions to body
   if (timeOptions) {
     timeOptions.style.display = "none";
     document.body.appendChild(timeOptions);
   }
 
-  // ─── Calendar & date ───
   if (dateInput) {
     var calendar = document.createElement("div");
     calendar.className = "simple-calendar";
@@ -458,18 +424,17 @@ document.addEventListener("DOMContentLoaded", () => {
       return n < 10 ? "0" + n : "" + n;
     }
 
-    // ─── Доступные даты (как в боте: подсвечиваем только те дни, на
-    // которые реально есть свободные слоты) ───
-    // Кэш по (service, staff, год-месяц), чтобы при повторном заходе в
-    // тот же месяц не дёргать бэкенд заново.
     var ycAvailableDatesCache = {};
     function availableDatesCacheKey(serviceId, staffId, year, month) {
       return serviceId + "|" + (staffId || "") + "|" + year + "-" + month;
     }
-    // Возвращает Set ISO-дат со свободными слотами, либо null — null
-    // означает, что запрос не удался и фильтровать календарь нельзя
-    // (лучше показать все даты, чем ошибочно спрятать рабочие, — как в боте).
-    async function fetchAvailableDatesForMonth(serviceId, staffId, year, month) {
+
+    async function fetchAvailableDatesForMonth(
+      serviceId,
+      staffId,
+      year,
+      month,
+    ) {
       var key = availableDatesCacheKey(serviceId, staffId, year, month);
       if (Object.prototype.hasOwnProperty.call(ycAvailableDatesCache, key)) {
         return ycAvailableDatesCache[key];
@@ -503,7 +468,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return result;
     }
 
-    // ─── Helper: reposition calendar to the correct parent on resize/orientation change ───
     function ensureCalendarParent() {
       var isMobile = window.innerWidth <= 600;
       var modalContent = dateInput.closest(".modal-content");
@@ -518,7 +482,6 @@ document.addEventListener("DOMContentLoaded", () => {
       ensureCalendarParent();
       var isMobile = window.innerWidth <= 600;
       if (isMobile) {
-        // Mobile: position relative to modal-content, scrolls with form
         var modalContent = dateInput.closest(".modal-content");
         if (modalContent) {
           var inputRect = dateInput.getBoundingClientRect();
@@ -536,7 +499,6 @@ document.addEventListener("DOMContentLoaded", () => {
           calendar.style.maxWidth = "100%";
         }
       } else {
-        // Desktop: position fixed relative to viewport
         var r = dateInput.getBoundingClientRect();
         calendar.style.top = r.bottom + 8 + "px";
         calendar.style.left = "50%";
@@ -546,10 +508,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // Строит HTML сетки дней. availableDates: null — не фильтруем
-    // (услуга ещё не из YClients, или запрос не удался — как в боте, лучше
-    // показать все даты, чем ошибочно спрятать рабочие); объект вида
-    // {"YYYY-MM-DD": true} — фильтруем по нему.
     function buildCalendarHtml(y, m, availableDates) {
       var sw = new Date(y, m, 1).getDay() - 1;
       if (sw < 0) sw = 6;
@@ -582,9 +540,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return html;
     }
 
-    // Лоадер вместо сетки дней, пока не пришли доступные даты — чтобы
-    // не показывать сначала все даты кликабельными, а через мгновение
-    // резко задизейбливать часть из них.
     function buildCalendarLoaderHtml() {
       return (
         '<div class="sc-loader"><div class="sc-loader-spinner"></div>' +
@@ -592,9 +547,6 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
-    // Токен защищает от гонки: если пользователь быстро переключил месяц
-    // (или закрыл календарь) до того, как пришёл ответ на available-dates,
-    // устаревший ответ не должен перезаписать уже актуальный рендер.
     var calendarRenderToken = 0;
 
     function attachCalendarHandlers(y, m) {
@@ -630,8 +582,6 @@ document.addEventListener("DOMContentLoaded", () => {
         m = viewDate.getMonth();
       var myToken = ++calendarRenderToken;
 
-      // Если фильтровать нечем (услуга/мастер ещё не выбраны) — фактически
-      // нечего ждать, сразу показываем календарь без лоадера.
       if (!selectedService || !selectedStaffId) {
         calendar.innerHTML = buildCalendarHtml(y, m, null);
         attachCalendarHandlers(y, m);
@@ -639,14 +589,9 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // 1) Пока не пришёл ответ про доступные даты — показываем лоадер,
-      //    а не сам календарь (иначе сначала все даты кликабельны,
-      //    а через миг часть из них резко становится серой — нелогично).
       calendar.innerHTML = buildCalendarLoaderHtml();
       positionCalendar();
 
-      // 2) Подгружаем реально доступные даты (как в боте) и только теперь
-      //    показываем календарь — сразу с итоговым состоянием.
       var availableDates = await fetchAvailableDatesForMonth(
         selectedService.id,
         selectedStaffId,
@@ -674,13 +619,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!calendar.contains(e.target) && e.target !== dateInput)
         calendar.classList.remove("active");
     });
-    // Re-parent on resize (orientation change etc.)
+
     window.addEventListener("resize", function () {
       if (calendar.classList.contains("active")) renderCalendar();
     });
   }
 
-  // ─── Build custom time buttons ───
   function buildTimeButtons(slots) {
     if (!timeOptions) return;
     timeOptions.innerHTML = "";
@@ -709,7 +653,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ─── Scroll handler for repositioning dropdowns ───
   function repositionDropdown(dropdown, toggleEl) {
     if (!dropdown || dropdown.style.display === "none") return;
     var r = toggleEl.getBoundingClientRect();
@@ -717,7 +660,6 @@ document.addEventListener("DOMContentLoaded", () => {
     dropdown.style.left = r.left + "px";
   }
 
-  // ─── Time toggle ───
   timeToggle?.addEventListener("click", function (e) {
     e.stopPropagation();
     if (!timeSelect.disabled && timeOptions) {
@@ -742,7 +684,7 @@ document.addEventListener("DOMContentLoaded", () => {
     )
       timeOptions.style.display = "none";
   });
-  // Reposition time options on modal scroll
+
   var timeReposition = function () {
     repositionDropdown(timeOptions, timeToggle);
   };
@@ -751,7 +693,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   window.addEventListener("resize", timeReposition);
 
-  // ─── Modal open/close ───
   bookingBtn?.addEventListener("click", function () {
     openModal(bookingModal);
   });
@@ -795,10 +736,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // ─── Открыть форму записи из клика по слоту в публичном расписании ───
-  // Мастер, дата и время уже известны — их подставим сами, как только
-  // пользователь выберет услугу (см. onServiceSelected). Останется
-  // указать только услугу, имя и телефон.
   window.openBookingFromSlot = function (staffId, isoDate, time) {
     if (!bookingModal) return;
     window.openModal(bookingModal);
@@ -815,7 +752,6 @@ document.addEventListener("DOMContentLoaded", () => {
     resetForm();
   };
 
-  // ─── Form submit ───
   var formError = document.createElement("div");
   formError.className = "form-error-msg";
   var submitBtnEl = bookingForm?.querySelector(".submit-btn");
@@ -833,7 +769,6 @@ document.addEventListener("DOMContentLoaded", () => {
     formError.textContent = "";
   }
 
-  // ─── Prevent form from reloading page ───
   bookingForm?.addEventListener("submit", function (e) {
     e.preventDefault();
     submitBooking();
@@ -852,13 +787,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // ✅ Валидация имени: только буквы, пробелы, дефисы, апострофы. Минимум 2 символа.
     if (!name || name.length < 2 || !/^[a-zA-Zа-яА-ЯёЁ\s\-']+$/.test(name)) {
       showFormError("Введите корректное имя (только буквы, минимум 2 символа)");
       return;
     }
 
-    // ✅ Валидация телефона: минимум 10 цифр
     var phoneClean = phone.replace(/[^\d]/g, "");
     if (phoneClean.length < 10) {
       showFormError("Введите корректный номер телефона (минимум 10 цифр)");
@@ -905,13 +838,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         throw new Error(errData.error || "Ошибка");
       }
-      // Parse response for client_id
+
       var resData = await res.json().catch(function () {
         return {};
       });
       var clientId = resData.client_id;
 
-      // Show success overlay with notification buttons
       var overlay = document.createElement("div");
       overlay.className = "success-overlay";
       overlay.innerHTML =
@@ -937,7 +869,6 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       });
 
-      // Attach click handlers for notification buttons
       if (clientId && clientId !== -1) {
         overlay.querySelectorAll(".notify-btn").forEach(function (b) {
           b.addEventListener("click", async function () {
@@ -967,14 +898,13 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      // Auto-fade success after 5 seconds
       setTimeout(function () {
         overlay.classList.remove("active");
         setTimeout(function () {
           overlay.remove();
         }, 500);
       }, 5000);
-      // Reset form & close modal
+
       bookingForm.reset();
       closeModal(bookingModal);
     } catch (err) {
@@ -986,10 +916,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// ─── AUTO-OPEN BOOKING MODAL FROM SCHEDULE PAGE ───
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get("open_booking") === "1") {
-  // Ждём, пока загрузятся данные мастеров, затем открываем модалку
   const checkAndOpen = setInterval(() => {
     if (window.ycStaffMap && Object.keys(window.ycStaffMap).length > 0) {
       clearInterval(checkAndOpen);
@@ -999,7 +927,6 @@ if (urlParams.get("open_booking") === "1") {
     }
   }, 100);
 
-  // На случай, если данные не загрузятся за 5 секунд, всё равно откроем
   setTimeout(() => {
     clearInterval(checkAndOpen);
     if (!bookingModal.classList.contains("active")) {

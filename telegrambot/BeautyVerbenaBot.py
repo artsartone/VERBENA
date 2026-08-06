@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """BeautyVerbenaBot — Telegram-бот для записи в студию красоты VERBENA.
 
 Для работы через прокси задайте переменную BOT_PROXY:
@@ -37,16 +36,11 @@ from telegram.ext import (
 )
 from telegram.request import HTTPXRequest
 
-# ─── Конфигурация ───
-
 TOKEN = os.environ.get("BOT_TOKEN", "")
 API_BASE = os.environ.get("API_BASE",
                           "http://localhost:5000")  # URL Flask-бэкенда
 
-# ─── Прокси для Telegram API (из переменной окружения) ───
 BOT_PROXY = os.environ.get("BOT_PROXY", "")
-
-# ─── Состояния ConversationHandler ───
 
 (
     SELECT_SERVICE,
@@ -59,13 +53,10 @@ BOT_PROXY = os.environ.get("BOT_PROXY", "")
     CONFIRM_BOOKING,
 ) = range(8)
 
-# ─── Время (статическое, если YClients не даст слоты) ───
 TIME_SLOTS = [
     f"{h:02d}:{m:02d}" for h in range(10, 20) for m in range(0, 60, 15)
 ]
 
-# ─── Услуги (статические, из index.html) ───
-# Сначала пробуем загрузить из YClients, если не получается — используем эти.
 SERVICES = [
     ("Маникюр с покрытием гель-лак", "1700–2700 ₽", "manicure"),
     ("Педикюр с покрытием гель-лак (только пальчики)", "1600–2100 ₽",
@@ -91,7 +82,6 @@ SERVICES = [
     ("Стрижка", "500–1000 ₽", "hair"),
 ]
 
-# Категории: ключи без эмодзи для callback_data (эмодзи только для отображения)
 CATEGORY_LABELS = [
     ("manicure", "💅 Маникюр"),
     ("brows", "✏️ Брови"),
@@ -171,7 +161,6 @@ def load_yc_categories():
     return []
 
 
-# Cache for YClients data with TTL (60 seconds)
 _YC_STAFF_CACHE = []
 _YC_SERVICES_CACHE = []
 _YC_CATEGORIES_CACHE = []
@@ -202,7 +191,7 @@ async def refresh_yc_cache_async():
     async with _YC_CACHE_LOCK:
         if _is_cache_fresh():
             return  # кэш ещё свежий, ничего не делаем
-        # Запускаем синхронные HTTP-запросы в executor, чтобы не блокировать event loop
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, refresh_yc_cache)
 
@@ -271,15 +260,11 @@ def yc_price_label(svc: dict) -> str:
     return ""
 
 
-# ─── Логирование ───
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-
-# ─── Вспомогательные функции ───
 
 
 def to_display_date(date_str: str) -> str:
@@ -328,7 +313,7 @@ def format_booking(booking: dict) -> str:
     ]
     if master:
         lines.append(f"👩‍🎨 Мастер: {master}")
-    # Телефон скрываем — пользователь знает свой номер
+
     return "\n".join(lines)
 
 
@@ -350,7 +335,7 @@ def send_notifications(booking_data: dict):
 
     try:
         with httpx.Client(timeout=15.0) as client:
-            # Получаем список пользователей через API бэкенда (localhost)
+
             resp = client.get(f"{API_BASE}/api/telegram/notify-users")
             if resp.status_code != 200:
                 logger.info(
@@ -399,8 +384,6 @@ def send_notifications(booking_data: dict):
     except Exception as e:
         logger.error(f"Ошибка получения списка уведомляемых: {e}")
 
-
-# ─── Команда /start ───
 
 MAIN_MENU_TEXT = (
     "🌸 <b>Добро пожаловать в VERBENA — студию красоты!</b>\n\n"
@@ -462,9 +445,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=MAIN_MENU_KEYBOARD,
         parse_mode="HTML",
     )
-
-
-# ─── Главное меню (обработчик кнопок) ───
 
 
 async def show_main_menu(update: Update,
@@ -553,7 +533,7 @@ async def career_message_handler(update: Update,
     text = update.message.text.strip()
 
     if step == "name":
-        # ✅ Валидация имени
+
         if not re.match(r"^[a-zA-Zа-яА-ЯёЁ\s\-']{2,}$", text):
             await update.message.reply_text(
                 "❌ Имя должно содержать только буквы (минимум 2 символа). Попробуйте снова:"
@@ -597,7 +577,7 @@ async def career_message_handler(update: Update,
 
     elif step == "cover_letter":
         context.user_data["career_cover_letter"] = text if text != "-" else ""
-        # Отправляем заявку
+
         await _submit_career_application(update, context)
 
 
@@ -631,14 +611,12 @@ async def _submit_career_application(
     except Exception:
         text = "✅ Ваша заявка принята! Мы свяжемся с вами."
 
-    # Очищаем данные
     for key in [
             "career_step", "career_name", "career_phone", "career_experience",
             "resume", "cover_letter"
     ]:
         context.user_data.pop(key, None)
 
-    # ✅ ОДНО сообщение с кнопкой возврата в меню (вместо двух подряд)
     keyboard = [[
         InlineKeyboardButton("◀️ В меню", callback_data="back_to_menu")
     ]]
@@ -668,15 +646,9 @@ async def exit_booking_to_main_menu(update: Update,
     return ConversationHandler.END
 
 
-# ═══════════════════════════════════════════════════════════════
-# [ЗАКОММЕНТИРОВАНО] Мои записи — show_my_bookings
-# Функция показывает пользователю его записи — отключено.
-# ═══════════════════════════════════════════════════════════════
-
-
 async def show_categories(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показать категории услуг."""
-    # Асинхронное обновление кэша — не блокирует ответ
+
     asyncio.ensure_future(refresh_yc_cache_async())
 
     keyboard = []
@@ -701,7 +673,6 @@ async def show_categories(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     new_text = "Выберите категорию услуги:"
 
-    # ✅ ПРОВЕРКА: Не редактируем, если контент идентичен
     try:
         current_msg = query.message
         if (current_msg.text == new_text and current_msg.reply_markup
@@ -723,13 +694,13 @@ async def show_categories(query, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def show_services(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показать все услуги с ценами (загружается из YClients API)."""
-    # Асинхронное обновление кэша — не блокирует ответ
+
     asyncio.ensure_future(refresh_yc_cache_async())
 
     text = "💇‍♀️ <b>Наши услуги и цены</b>\n\n"
 
     if _YC_CATEGORIES_CACHE and _YC_SERVICES_CACHE:
-        # Показываем из YClients
+
         for cat in _YC_CATEGORIES_CACHE:
             cat_id = cat.get("id")
             title = cat.get("title") or "Услуги"
@@ -743,7 +714,7 @@ async def show_services(query, context: ContextTypes.DEFAULT_TYPE) -> None:
                                               if price else "") + "\n"
             text += "\n"
     else:
-        # Fallback: статический список
+
         for key, display_name in CATEGORY_LABELS:
             text += f"<b>{display_name}</b>\n"
             for _, service_name, price in services_in_category(key):
@@ -766,7 +737,8 @@ async def show_contacts(query, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📍 <b>Студия красоты VERBENA</b>\n"
         "🏠 <b>Адрес:</b> г. Строитель, ул. Октябрьская, 15\n"
         "🕐 <b>Режим работы:</b> Ежедневно 10:00–20:00\n"
-        "📞 <b>Телефон:</b> +7 (915) 526-50-56\n\n"
+        "📞 <b>Телефон:</b> +7 (915) 526-50-56\n"
+        "🔗 <b>Сайт:</b>https://beauty-verbena.ru\n\n"
         "🌐 <b>Мы в соцсетях:</b>\n"
         "• <a href='https://vk.ru/verbena.studio31'>ВКонтакте</a>\n"
         "• <a href='https://t.me/verbenastudio31'>Telegram</a>\n"
@@ -783,14 +755,6 @@ async def show_contacts(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-# ═══════════════════════════════════════════════════════════════
-# [ЗАКОММЕНТИРОВАНО] Мои записи — cancel_booking_callback
-# Отмена записи из раздела «Мои записи» — отключено.
-# ═══════════════════════════════════════════════════════════════
-
-# ─── Процесс записи на услугу ───
-
-
 async def category_callback(update: Update,
                             context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выбор услуги из категории."""
@@ -799,7 +763,6 @@ async def category_callback(update: Update,
 
     cat_key = query.data.replace("cat_", "")
 
-    # ─── Реальная категория YClients (id совпадает с одной из закэшированных) ───
     yc_category = None
     if _YC_CATEGORIES_CACHE:
         for cat in _YC_CATEGORIES_CACHE:
@@ -815,13 +778,12 @@ async def category_callback(update: Update,
             price = yc_price_label(svc)
             label = f"{svc.get('title', 'Услуга')}" + (f" — {price}"
                                                        if price else "")
-            # callback_data ограничен 64 байтами — используем реальный числовой
-            # id услуги YClients, чтобы не терять связь с сервисом (как selectedService.id в modal.js)
+
             keyboard.append([
                 InlineKeyboardButton(label, callback_data=f"svc_{svc['id']}")
             ])
     else:
-        # ─── Fallback: статический список (старое поведение) ───
+
         display_name = dict(CATEGORY_LABELS).get(cat_key)
         services = services_in_category(cat_key)
         if display_name is None or not services:
@@ -829,7 +791,7 @@ async def category_callback(update: Update,
             return SELECT_SERVICE
         for idx, service_name, price in services:
             label = f"{service_name} — {price}"
-            # Индекс, а не текст: длинные названия услуг ломают клавиатуру целиком.
+
             keyboard.append(
                 [InlineKeyboardButton(label, callback_data=f"svc_{idx}")])
 
@@ -853,9 +815,7 @@ async def back_to_categories(update: Update,
     query = update.callback_query
     await query.answer()
     await show_categories(query, context)
-    # Явно возвращаем состояние: без этого ConversationHandler считает,
-    # что состояние не изменилось (осталось прежним — например SELECT_DATE),
-    # и следующий выбор категории (cat_...) просто не долетает до обработчика.
+
     return SELECT_SERVICE
 
 
@@ -867,13 +827,10 @@ async def service_selected(update: Update,
 
     raw = query.data.replace("svc_", "")
 
-    # ─── Реальная услуга YClients (id совпадает с закэшированной) ───
     yc_service = None
     if _YC_SERVICES_CACHE:
         for svc in _YC_SERVICES_CACHE:
-            # active == 1 — иначе можно словить нажатие на устаревшую кнопку
-            # из старого сообщения (услугу деактивировали/сняли с онлайн-записи
-            # после того, как меню было показано пользователю).
+
             if str(svc.get("id")) == raw and svc.get("active") == 1:
                 yc_service = svc
                 break
@@ -882,15 +839,14 @@ async def service_selected(update: Update,
         service_name = yc_service.get("title", "Услуга")
         context.user_data["service"] = service_name
         context.user_data["yclients_service_id"] = yc_service["id"]
-        # Мастера этой услуги — из уже закэшированного списка услуг, без
-        # живого запроса к YClients (см. yc_staff_for_service).
+
         staff = yc_staff_for_service(yc_service)
     else:
-        # ─── Fallback: статический список услуг (старое поведение) ───
+
         try:
             service_name, price, _ = SERVICES[int(raw)]
         except (ValueError, IndexError):
-            # Устаревшая/повреждённая кнопка (например, после перезапуска бота).
+
             await query.edit_message_text(
                 "❌ Эта кнопка устарела. Пожалуйста, начните запись заново: /start"
             )
@@ -902,7 +858,7 @@ async def service_selected(update: Update,
         staff = _YC_STAFF_CACHE
 
     if staff:
-        # Show staff selection first
+
         keyboard = []
         for s in staff:
             name = s.get("name", "Мастер")
@@ -930,20 +886,10 @@ async def service_selected(update: Update,
 
 
 DATE_RANGE_DAYS = 14
-# ─── Пагинация дат ───
+
 DATE_WINDOW_DAYS = 60  # на сколько дней вперёд ищем доступные даты
 DATE_PAGE_SIZE = 14  # сколько дат показывать на одной странице
 
-# TTL для локального (в рамках одного диалога) кэша доступных дат/времени.
-# Нужен только для навигации "Назад" внутри уже начатой записи (см.
-# back_to_date/back_to_time) — пока пользователь ходит между шагами
-# туда-обратно, не меняя услугу/мастера/дату, нет смысла на каждый такой
-# клик заново дёргать YClients: book_dates/book_times не кэшируются на
-# backend (в отличие от /api/public/free-slots), поэтому без этого кэша
-# каждое "Назад" — это живой запрос к YClients с тем же результатом.
-# Хранится в context.user_data, то есть per-диалог, и живёт не дольше
-# самого диалога — никакого риска отдать чужие/устаревшие данные другому
-# пользователю.
 _NAV_CACHE_TTL = 60  # секунд
 
 
@@ -994,7 +940,6 @@ def _get_available_dates_set(service_id,
     today = date.today()
     end = today + timedelta(days=days - 1)
 
-    # Собираем все месяцы, которые попадают в диапазон
     months = []
     cur = today.replace(day=1)
     end_month = end.replace(day=1)
@@ -1012,8 +957,7 @@ def _get_available_dates_set(service_id,
         result = _fetch_available_dates_for_month(service_id, staff_id, y, m)
 
         if result is None:
-            # Если хотя бы один месяц не удалось получить —
-            # не фильтруем даты, чтобы случайно не скрыть рабочие дни.
+
             return None
 
         all_dates |= result
@@ -1037,15 +981,14 @@ async def _show_date_selection(query, context, service_name):
     available_dates = None
 
     if yc_service_id:
-        # Показываем заглушку, только если данных ещё нет в кэше диалога —
-        # иначе будет лишнее мигание сообщения при листании уже
-        # закэшированных дат.
+
         dates_cache_key = (str(yc_service_id), str(yc_staff_id),
-                          int(DATE_WINDOW_DAYS))
+                           int(DATE_WINDOW_DAYS))
         dates_cache = context.user_data.get("_dates_cache")
-        cache_fresh = (dates_cache and dates_cache.get("key") == dates_cache_key
-                       and (datetime.now().timestamp() - dates_cache.get("ts", 0))
-                       < _NAV_CACHE_TTL)
+        cache_fresh = (dates_cache
+                       and dates_cache.get("key") == dates_cache_key
+                       and (datetime.now().timestamp() -
+                            dates_cache.get("ts", 0)) < _NAV_CACHE_TTL)
         if not cache_fresh:
             await _show_loading(query, "⏳ Ищу свободные даты...")
 
@@ -1064,8 +1007,7 @@ async def _show_date_selection(query, context, service_name):
             if iso_date in available_dates:
                 all_dates.append(iso_date)
     else:
-        # Fallback: если услуга не из YClients или API недоступен,
-        # показываем ближайшие DATE_RANGE_DAYS дней без фильтрации.
+
         all_dates = [(today + timedelta(days=i)).isoformat()
                      for i in range(DATE_RANGE_DAYS)]
 
@@ -1122,7 +1064,6 @@ async def _show_date_selection(query, context, service_name):
     if row:
         keyboard.append(row)
 
-    # ─── Стрелки вперёд / назад ───
     nav_row = []
 
     if page > 0:
@@ -1210,9 +1151,6 @@ async def _show_time_selection(query, context, date_str: str) -> int:
         f"📅 Запрос слотов: Date={iso_date}, Staff={yc_staff_id}, Service={yc_service_id}"
     )
 
-    # Кэш в рамках диалога — см. _NAV_CACHE_TTL: на "Назад к дате" → "туда
-    # же" (тот же service/staff/date) не шлём в YClients повторный
-    # book_times, если с прошлого раза не прошло больше TTL.
     times_cache_key = (str(yc_service_id), str(yc_staff_id), iso_date)
     times_cache = context.user_data.get("_times_cache")
     cache_hit = (times_cache and times_cache["key"] == times_cache_key
@@ -1225,9 +1163,9 @@ async def _show_time_selection(query, context, date_str: str) -> int:
     else:
         await _show_loading(query, "⏳ Ищу свободное время...")
         try:
-            # Пытаемся получить слоты от YClients через бэкенд
+
             if yc_service_id:
-                # Даже если мастера нет (staff_0), пробуем получить слоты по услуге
+
                 params = {
                     "service_id": yc_service_id,
                     "date": iso_date,
@@ -1251,26 +1189,21 @@ async def _show_time_selection(query, context, date_str: str) -> int:
                         if isinstance(slots[0], str):
                             available_slots = slots
                         elif isinstance(slots[0], dict):
-                            # Фильтруем только доступные слоты
+
                             available_slots = [
                                 s["time"] for s in slots
                                 if s.get("available", True)
                             ]
-                    # Кэшируем даже пустой (но успешный) результат — пустой
-                    # список тоже валиден и не должен провоцировать повторный
-                    # запрос при следующем "Назад" в течение TTL.
+
                     context.user_data["_times_cache"] = {
                         "key": times_cache_key,
                         "ts": datetime.now().timestamp(),
                         "data": available_slots,
                     }
 
-            # УБРАЛИ fallback на старую БД, так как она не синхронизирована с YClients
-
         except Exception as e:
             logger.error(f"Ошибка при получении слотов: {e}")
 
-    # ЕСЛИ СЛОТОВ НЕТ — ЧЕСТНО ГОВОРИМ ОБ ЭТОМ, А НЕ ПОКАЗЫВАЕМ TIME_SLOTS
     if not available_slots:
         logger.warning(
             f"⚠️ Нет доступных слотов для {iso_date}. Используем заглушку.")
@@ -1388,7 +1321,7 @@ async def back_to_time(update: Update,
     await query.answer()
     date_str = context.user_data.get("date")
     if not date_str:
-        # На всякий случай, если дата почему-то потерялась — откатываемся дальше.
+
         return await back_to_date(update, context)
     context.user_data.pop("time", None)
     return await _show_time_selection(query, context, date_str)
@@ -1429,7 +1362,6 @@ async def phone_received(update: Update,
 
     context.user_data["phone"] = phone_clean
 
-    # Ask for optional comment
     keyboard = [[
         InlineKeyboardButton("⏭️ Пропустить", callback_data="skip_comment"),
     ]]
@@ -1569,7 +1501,6 @@ async def confirm_booking(update: Update,
     if master_name:
         payload["assigned_employee_name"] = master_name
 
-    # Не дублируем уведомления — они идут только по подписке
     payload["no_notify"] = True
 
     await _show_loading(query, "⏳ Создаю запись...")
@@ -1584,9 +1515,6 @@ async def confirm_booking(update: Update,
             booking_id = resp_json.get("id", "—")
             client_id = resp_json.get("client_id")
 
-            # ═══════════════════════════════════════════════════════════════
-            # ТЕГ: Мои записи — привязка телефона к Telegram ID
-            # ═══════════════════════════════════════════════════════════════
             if telegram_id:
                 try:
                     requests.post(
@@ -1601,9 +1529,6 @@ async def confirm_booking(update: Update,
                 except Exception as e:
                     logger.error(f"Ошибка привязки телефона: {e}")
 
-            # ═══════════════════════════════════════════════════════════════
-            # ТЕГ: Мои записи — кнопка перехода в раздел
-            # ═══════════════════════════════════════════════════════════════
             keyboard = [
                 #    [
                 #        InlineKeyboardButton("📋 Мои записи",
@@ -1713,14 +1638,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# ═══════════════════════════════════════════════════════════════
-# [ЗАКОММЕНТИРОВАНО] Уведомления (клиентские) — notification_phone_handler
-# Обработчик ввода телефона для подписки на уведомления — отключено.
-# ═══════════════════════════════════════════════════════════════
-
-# ─── Обработчик обычных сообщений (не в диалоге) ───
-
-
 async def handle_message(update: Update,
                          context: ContextTypes.DEFAULT_TYPE) -> None:
     """Ответ на любые сообщения вне диалога."""
@@ -1750,12 +1667,9 @@ async def handle_message(update: Update,
             "Используйте /start, чтобы открыть меню.", )
 
 
-# ─── Главная функция ───
-
-
 def main() -> None:
     """Запуск бота."""
-    # ─── Проверка токена ───
+
     if not TOKEN:
         logger.critical(
             "BOT_TOKEN не задан! Установите переменную окружения BOT_TOKEN.\n"
@@ -1771,27 +1685,17 @@ def main() -> None:
         f"│  BOT_PROXY: {'задан' if BOT_PROXY else 'нет (прямое подключение)':<20} │\n"
         "╰─────────────────────────────────────────────╯")
 
-    # ─── Настройка прокси для httpx ───
-    # httpx (используется python-telegram-bot под капотом) уважает
-    # переменные окружения HTTPS_PROXY/HTTP_PROXY. Это самый надёжный
-    # способ задать прокси — без возни с httpx.Proxy объектами.
-    # Requests для локального API идёт в обход (NO_PROXY).
     if BOT_PROXY:
         logger.info(f"Прокси для Telegram API: {BOT_PROXY}")
         os.environ["HTTPS_PROXY"] = BOT_PROXY
         os.environ["HTTP_PROXY"] = BOT_PROXY
         os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
     else:
-        # Убираем на случай если прокси задан системно
+
         os.environ.pop("HTTPS_PROXY", None)
         os.environ.pop("HTTP_PROXY", None)
         os.environ.pop("NO_PROXY", None)
 
-    # ─── Создаём HTTPXRequest ───
-    # connection_pool_size=1 — минимизируем проблемы с keep-alive
-    # через HTTP-прокси (которые сбрасывают idle-соединения)
-    # timeout=25 в run_polling — getUpdates завершается до того
-    # как прокси оборвёт долгое соединение
     bot_request = HTTPXRequest(
         connection_pool_size=1,
         connect_timeout=90,
@@ -1800,11 +1704,9 @@ def main() -> None:
         pool_timeout=30,
     )
 
-    # ─── Собираем приложение ───
     application = (
         Application.builder().token(TOKEN).request(bot_request).build())
 
-    # ConversationHandler для записи на услугу
     booking_conv = ConversationHandler(
         per_message=False,
         entry_points=[
@@ -1889,9 +1791,7 @@ def main() -> None:
             pattern=
             "^(book|services|contacts|career|back_to_menu|back_to_categories)$"
         ))
-    # ═══════════════════════════════════════════════════════════════
-    # Career — заявка на трудоустройство
-    # ═══════════════════════════════════════════════════════════════
+
     application.add_handler(
         CallbackQueryHandler(career_form_handler, pattern="^career_form$"))
     application.add_handler(
@@ -1914,9 +1814,6 @@ def main() -> None:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # ═══════════════════════════════════════════════════════════════
-    # Предзагрузка кэша YClients при старте
-    # ═══════════════════════════════════════════════════════════════
     logger.info("Предзагрузка кэша YClients...")
     refresh_yc_cache()
     logger.info(

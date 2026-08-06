@@ -13,8 +13,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# То же значение, что BOT_TOKEN в BeautyVerbenaBot_MAX.py (переиспользуйте
-# одну и ту же переменную окружения, если оба процесса на одном хосте).
 MAX_BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MAX_API_BASE = os.environ.get("MAX_API_BASE", "https://platform-api2.max.ru")
 
@@ -29,7 +27,10 @@ def send_max_notification(user_id: str, text: str) -> bool:
             f"{MAX_API_BASE}/messages",
             params={"user_id": user_id},
             headers={"Authorization": MAX_BOT_TOKEN},
-            json={"text": text, "format": "html"},
+            json={
+                "text": text,
+                "format": "html"
+            },
             timeout=10,
         )
         if resp.status_code != 200:

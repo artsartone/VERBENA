@@ -39,11 +39,9 @@ from .validators import validate_name, validate_phone, validate_comment
 
 logger = logging.getLogger("vk_bot")
 
-# Создаём blueprint для обработчиков
 bp = Blueprint("VK Booking Handlers")
 
 
-# ─── Вспомогательные функции состояний (FSM) ───
 async def _get_ctx(message: Message) -> dict:
     """Получить накопленный контекст FSM (payload состояния)."""
     if message.state_peer and message.state_peer.payload:
@@ -75,24 +73,15 @@ async def _typing(message: Message) -> None:
     Ошибки игнорируются — это не критичный для работы бота индикатор.
     """
     try:
-        await message.ctx_api.messages.set_activity(
-            peer_id=message.peer_id, type="typing")
+        await message.ctx_api.messages.set_activity(peer_id=message.peer_id,
+                                                    type="typing")
     except Exception as e:
         logger.debug(f"Не удалось показать статус 'печатает': {e}")
 
 
-# ─── Лоадер (сообщение-заглушка на время запроса к бэкенду) ───
-#
-# «Печатает…» живёт всего несколько секунд и не всегда успевает
-# «прожиться» до ответа бэкенда. Здесь — настоящий лоадер: перед
-# долгим запросом отправляем отдельное сообщение («⏳ Секунду…»), а
-# когда данные получены — подменяем его текст финальным ответом через
-# messages.edit, вместо того чтобы слать новое сообщение. Пользователь
-# видит одно и то же сообщение, которое «оживает» с результатом.
-
-
-async def _show_loader(message: Message,
-                       text: str = "⏳ Секунду, гружу данные…") -> Optional[int]:
+async def _show_loader(
+        message: Message,
+        text: str = "⏳ Секунду, гружу данные…") -> Optional[int]:
     """Отправить сообщение-лоадер и вернуть его message_id.
 
     Возвращает None, если отправить не удалось — тогда _finish_loader
@@ -146,8 +135,6 @@ def _kb(keyboard: Keyboard) -> str:
     return json.dumps(data, ensure_ascii=False)
 
 
-# ─── Главное меню ───
-
 MAIN_MENU_TEXT = (
     "🌸 Добро пожаловать в VERBENA — студию красоты!\n\n"
     "Здесь вы можете записаться на услуги, посмотреть свои записи "
@@ -167,13 +154,13 @@ MAIN_MENU_TEXT = (
     ))
 async def start_handler(message: Message):
     """Приветствие и главное меню."""
-    # Начинаем FSM с главного меню
+
     await bp.state_dispenser.delete(message.peer_id)
     await bp.state_dispenser.set(message.peer_id, BookingState.START)
 
     await message.answer(MAIN_MENU_TEXT,
                          keyboard=_kb(get_main_menu_keyboard()))
-    # Постоянная кнопка «📋 Меню» под полем ввода
+
     await message.answer(
         "Кнопка «📋 Меню» всегда доступна под полем ввода — "
         "нажмите её, чтобы вернуться в главное меню.",
@@ -196,18 +183,10 @@ async def main_menu_handler(message: Message):
     elif cmd == "career":
         await show_career(message)
     elif cmd == "back_to_menu":
-        await bp.state_dispenser.set(message.peer_id, BookingState.START)
-        await message.answer(MAIN_MENU_TEXT,
-                             keyboard=_kb(get_main_menu_keyboard()))
-    else:
-        # Нераспознанный ввод в главном меню — показываем его снова
         await bp.state_dispenser.delete(message.peer_id)
         await bp.state_dispenser.set(message.peer_id, BookingState.START)
         await message.answer(MAIN_MENU_TEXT,
                              keyboard=_kb(get_main_menu_keyboard()))
-
-
-# ─── Категории ───
 
 
 async def show_categories(message: Message):
@@ -228,14 +207,15 @@ async def show_categories(message: Message):
                 categories.append((cat_id, title))
 
     if not categories:
-        # Fallback: статические категории
         categories = [
             ("manicure", "💅 Маникюр"),
             ("brows", "✏️ Брови"),
             ("hair", "💇‍♀️ Парикмахерские"),
         ]
 
-    await _finish_loader(message, loader_id, "Выберите категорию услуги:",
+    await _finish_loader(message,
+                         loader_id,
+                         "Выберите категорию услуги:",
                          keyboard=_kb(get_categories_keyboard(categories)))
 
 
@@ -261,7 +241,6 @@ async def show_services_for_category(message: Message, category_id: str):
     """Показать услуги категории."""
     cache = get_cache(API_BASE)
 
-    # Проверяем, реальная ли это категория YClients
     yc_category = None
     if cache.categories:
         for cat in cache.categories:
@@ -288,7 +267,6 @@ async def show_services_for_category(message: Message, category_id: str):
                 price = ""
             services.append((svc_id, title, price))
     else:
-        # Fallback: статические услуги
         display_name = category_id
         services = []
 
@@ -296,13 +274,11 @@ async def show_services_for_category(message: Message, category_id: str):
         await message.answer("❌ Ошибка: категория не найдена")
         return
 
-    # Сохраняем полный список услуг для пагинации
-    await _set_state(message, BookingState.SERVICE, available_services=services)
+    await _set_state(message,
+                     BookingState.SERVICE,
+                     available_services=services)
     await message.answer(f"{display_name}\n\nВыберите услугу:",
                          keyboard=_kb(get_services_keyboard(services)))
-
-
-# ─── Услуги ───
 
 
 @bp.on.message(StateRule(BookingState.SERVICE))
@@ -320,7 +296,8 @@ async def service_handler(message: Message):
         page = int(payload.get("page", 0))
         display_name = payload.get("title", "Услуги")
         await message.answer(f"{display_name}\n\nВыберите услугу:",
-                             keyboard=_kb(get_services_keyboard(services, page=page)))
+                             keyboard=_kb(
+                                 get_services_keyboard(services, page=page)))
     elif cmd == "back_to_categories":
         await _set_state(message, BookingState.CATEGORY)
         await show_categories(message)
@@ -330,7 +307,6 @@ async def handle_service_selected(message: Message, service_id: str):
     """Услуга выбрана — показываем мастеров или дату."""
     cache = get_cache(API_BASE)
 
-    # Находим услугу в кэше
     yc_service = None
     for svc in cache.services:
         if str(svc.get("id")) == str(service_id):
@@ -339,7 +315,6 @@ async def handle_service_selected(message: Message, service_id: str):
 
     if yc_service:
         service_name = yc_service.get("title", "Услуга")
-        # Получаем мастеров для этой услуги
         staff = cache.get_staff_for_service(service_id=yc_service["id"])
         await _set_state(
             message,
@@ -353,17 +328,12 @@ async def handle_service_selected(message: Message, service_id: str):
         staff = cache.staff
 
     if staff:
-        # Показываем выбор мастера (с пагинацией)
         await _set_state(message, BookingState.MASTER, available_staff=staff)
         await message.answer(f"💇‍♀️ Услуга: {service_name}\n\n",
                              keyboard=_kb(get_staff_keyboard(staff)))
     else:
-        # Нет мастеров — сразу к дате
         await _set_state(message, BookingState.MASTER)
         await show_date_selection(message, service_name)
-
-
-# ─── Мастера ───
 
 
 @bp.on.message(StateRule(BookingState.MASTER))
@@ -381,7 +351,8 @@ async def master_handler(message: Message):
         page = int(payload.get("page", 0))
         service_name = ctx.get("service", "Услуга")
         await message.answer(f"💇‍♀️ Услуга: {service_name}\n\n",
-                             keyboard=_kb(get_staff_keyboard(staff, page=page)))
+                             keyboard=_kb(get_staff_keyboard(staff,
+                                                             page=page)))
     elif cmd == "back_to_categories":
         await _set_state(message, BookingState.CATEGORY)
         await show_categories(message)
@@ -393,7 +364,6 @@ async def handle_staff_selected(message: Message, staff_id: str):
 
     if staff_id and staff_id != "0":
         assigned_employee_name = ""
-        # Ищем имя мастера
         for s in cache.staff:
             if str(s["id"]) == str(staff_id):
                 assigned_employee_name = s.get("name", "Мастер")
@@ -417,23 +387,18 @@ async def handle_staff_selected(message: Message, staff_id: str):
     await show_date_selection(message, service_name)
 
 
-# ─── Даты ───
-
-# Сколько дней вперёд ищем доступные даты (как в Telegram-боте)
 DATE_WINDOW_DAYS = 60
 
-# Сколько дней показывать вперёд, если услуга не из YClients или API
-# недоступен (fallback без фильтрации по занятости)
 MAX_BOOKING_DAYS = 365
 
-# TTL локального (в рамках диалога) кэша доступных дат — чтобы при
-# листании страниц/возврате назад не дёргать YClients повторно на
-# каждый клик, пока не поменялись услуга/мастер и не истёк TTL.
 _NAV_CACHE_TTL = 60  # секунд
 
 
-def _get_cached_available_dates(booking_service, service_id, staff_id,
-                                ctx: dict, days: int = DATE_WINDOW_DAYS):
+def _get_cached_available_dates(booking_service,
+                                service_id,
+                                staff_id,
+                                ctx: dict,
+                                days: int = DATE_WINDOW_DAYS):
     """Доступные даты (ДД.ММ.ГГГГ) в пределах ближайших `days` дней.
 
     Получение и HTTP-запросы к /api/yclients/available-dates делегированы
@@ -455,8 +420,9 @@ def _get_cached_available_dates(booking_service, service_id, staff_id,
         if age < _NAV_CACHE_TTL:
             return cache["data"]
 
-    dates = booking_service.load_available_dates(service_id, staff_id,
-                                                  days=days)
+    dates = booking_service.load_available_dates(service_id,
+                                                 staff_id,
+                                                 days=days)
 
     if dates is None:
         return None
@@ -470,7 +436,9 @@ def _get_cached_available_dates(booking_service, service_id, staff_id,
     return dates
 
 
-async def show_date_selection(message: Message, service_name: str, page: int = 0):
+async def show_date_selection(message: Message,
+                              service_name: str,
+                              page: int = 0):
     """Показать выбор даты (с пагинацией).
 
     Показываются только даты, на которые есть хотя бы один свободный
@@ -488,26 +456,25 @@ async def show_date_selection(message: Message, service_name: str, page: int = 0
     loader_id = None
 
     if service_id:
-        # Заглушку показываем, только если данных ещё нет в локальном
-        # кэше диалога (см. _NAV_CACHE_TTL) — иначе будет лишний "тик"
-        # статуса при листании уже загруженных дат.
+
         cache_key = f"{service_id}:{staff_id}:{DATE_WINDOW_DAYS}"
         dates_cache = ctx.get("_dates_cache")
         cache_fresh = (dates_cache and dates_cache.get("key") == cache_key
-                       and (datetime.now().timestamp() - dates_cache.get("ts", 0))
-                       < _NAV_CACHE_TTL)
+                       and (datetime.now().timestamp() -
+                            dates_cache.get("ts", 0)) < _NAV_CACHE_TTL)
         if not cache_fresh:
             await _typing(message)
             loader_id = await _show_loader(message, "⏳ Ищу свободные даты…")
 
         booking_service = get_booking_service(API_BASE)
-        dates = _get_cached_available_dates(booking_service, service_id,
-                                            staff_id, ctx,
+        dates = _get_cached_available_dates(booking_service,
+                                            service_id,
+                                            staff_id,
+                                            ctx,
                                             days=DATE_WINDOW_DAYS)
 
     if dates is None:
-        # Fallback: услуга не из YClients или API недоступен — показываем
-        # ближайшие дни без фильтрации, как раньше.
+
         today = datetime.now().date()
         dates = [(today + timedelta(days=i)).strftime("%d.%m.%Y")
                  for i in range(MAX_BOOKING_DAYS)]
@@ -517,18 +484,17 @@ async def show_date_selection(message: Message, service_name: str, page: int = 0
 
     if not dates:
         await _finish_loader(
-            message, loader_id,
-            f"💇‍♀️ Услуга: {service_name}\n\n"
+            message,
+            loader_id, f"💇‍♀️ Услуга: {service_name}\n\n"
             "😔 На ближайшие даты нет свободных записей. "
             "Попробуйте выбрать другого мастера или загляните позже.",
             keyboard=_kb(get_dates_keyboard(dates, page=page)))
         return
 
-    await _finish_loader(
-        message, loader_id,
-        f"💇‍♀️ Услуга: {service_name}\n\n"
-        "📅 Выберите удобную дату:",
-        keyboard=_kb(get_dates_keyboard(dates, page=page)))
+    await _finish_loader(message,
+                         loader_id, f"💇‍♀️ Услуга: {service_name}\n\n"
+                         "📅 Выберите удобную дату:",
+                         keyboard=_kb(get_dates_keyboard(dates, page=page)))
 
 
 @bp.on.message(StateRule(BookingState.DATE))
@@ -543,7 +509,9 @@ async def date_handler(message: Message):
     elif cmd == "dates_page":
         ctx = await _get_ctx(message)
         page = int(payload.get("page", 0))
-        await show_date_selection(message, ctx.get("service", "Услуга"), page=page)
+        await show_date_selection(message,
+                                  ctx.get("service", "Услуга"),
+                                  page=page)
     elif cmd == "back_to_date":
         ctx = await _get_ctx(message)
         await show_date_selection(message, ctx.get("service", "Услуга"))
@@ -562,7 +530,6 @@ async def handle_date_selected(message: Message, date_str: str):
 
     booking_service = get_booking_service(API_BASE)
 
-    # Если нет staff_id, используем первый доступный
     if not staff_id and service_id:
         staff = booking_service.load_staff(service_id=service_id)
         if staff:
@@ -581,27 +548,24 @@ async def handle_date_selected(message: Message, date_str: str):
 
     if not available_times:
         await _finish_loader(
-            message, loader_id,
-            "😔 На эту дату нет свободного времени. "
+            message,
+            loader_id, "😔 На эту дату нет свободного времени. "
             "Пожалуйста, выберите другую дату.",
-            keyboard=_kb(
-                get_dates_keyboard(ctx.get("available_dates") or [])))
+            keyboard=_kb(get_dates_keyboard(ctx.get("available_dates") or [])))
         return
 
     service_name = ctx.get("service", "Услуга")
-    # Сохраняем полный список слотов для пагинации
+
     ctx["available_times"] = available_times
     await _set_state(message, BookingState.TIME, **ctx)
     await _finish_loader(
-        message, loader_id,
+        message,
+        loader_id,
         f"💇‍♀️ Услуга: {service_name}\n"
         f"📅 Дата: {date_str}\n"
         "⏰ Выберите время:",
         keyboard=_kb(get_times_keyboard(available_times)),
     )
-
-
-# ─── Время ───
 
 
 @bp.on.message(StateRule(BookingState.TIME))
@@ -646,9 +610,6 @@ async def handle_time_selected(message: Message, time_str: str):
                          "👤 Введите ваше имя:")
 
 
-# ─── Имя ───
-
-
 @bp.on.message(StateRule(BookingState.NAME))
 async def name_handler(message: Message):
     """Обработка ввода имени."""
@@ -666,9 +627,6 @@ async def name_handler(message: Message):
     await message.answer(f"👤 Имя: {name}\n\n"
                          "📞 Введите ваш номер телефона для связи.\n"
                          "Например: +79155265056")
-
-
-# ─── Телефон ───
 
 
 @bp.on.message(StateRule(BookingState.PHONE))
@@ -692,9 +650,6 @@ async def phone_handler(message: Message):
         "💬 Если хотите, оставьте комментарий к записи\n"
         "(или нажмите «Пропустить»):",
         keyboard=_kb(get_skip_comment_keyboard()))
-
-
-# ─── Комментарий ───
 
 
 @bp.on.message(StateRule(BookingState.COMMENT))
@@ -742,9 +697,6 @@ async def show_confirmation(message: Message):
     await message.answer(summary, keyboard=_kb(get_confirm_keyboard()))
 
 
-# ─── Подтверждение ───
-
-
 @bp.on.message(StateRule(BookingState.CONFIRM))
 async def confirm_handler(message: Message):
     """Подтверждение/отмена записи."""
@@ -783,36 +735,29 @@ async def create_booking(message: Message):
         source="vk")
 
     if success:
-        # Уведомления подписанным сотрудникам отправляет backend
-        # (create_booking запускает _send_telegram_notify + _send_vk_notify),
-        # поэтому здесь дублировать не нужно.
 
-        await _finish_loader(
-            message, loader_id,
-            "✅ Запись успешно создана! 🌸\n"
-            f"💇‍♀️ Услуга: {ctx.get('service')}\n"
-            f"📅 Дата: {ctx.get('date')}\n"
-            f"⏰ Время: {ctx.get('time')}\n"
-            "Ждём вас в студии красоты VERBENA! 💅\n",
-            keyboard=_kb(get_back_to_menu_keyboard()))
+        await _finish_loader(message,
+                             loader_id, "✅ Запись успешно создана! 🌸\n"
+                             f"💇‍♀️ Услуга: {ctx.get('service')}\n"
+                             f"📅 Дата: {ctx.get('date')}\n"
+                             f"⏰ Время: {ctx.get('time')}\n"
+                             "Ждём вас в студии красоты VERBENA! 💅\n",
+                             keyboard=_kb(get_back_to_menu_keyboard()))
     else:
         if error == "Это время уже занято":
             await _finish_loader(
-                message, loader_id,
-                "❌ К сожалению, это время уже занято.\n"
+                message,
+                loader_id, "❌ К сожалению, это время уже занято.\n"
                 "Пожалуйста, попробуйте выбрать другое время или дату.",
                 keyboard=_kb(get_back_to_menu_keyboard()))
         else:
             await _finish_loader(
-                message, loader_id,
-                f"❌ Ошибка при создании записи: {error}\n"
+                message,
+                loader_id, f"❌ Ошибка при создании записи: {error}\n"
                 "Пожалуйста, попробуйте позже или запишитесь по телефону +7 (915) 526-50-56",
                 keyboard=_kb(get_back_to_menu_keyboard()))
 
     await _clear_state(message)
-
-
-# ─── Дополнительные обработчики ───
 
 
 def send_telegram_notifications(booking_data: dict):
@@ -822,7 +767,8 @@ def send_telegram_notifications(booking_data: dict):
     Сотрудники подписываются в админке: admin.html → «Уведомления» → Telegram ID.
     """
     if not BOT_TOKEN:
-        logger.warning("BOT_TOKEN не задан — уведомления Telegram не отправлены")
+        logger.warning(
+            "BOT_TOKEN не задан — уведомления Telegram не отправлены")
         return
 
     try:
@@ -832,8 +778,8 @@ def send_telegram_notifications(booking_data: dict):
         if BOT_PROXY:
             proxies = {"https": BOT_PROXY, "http": BOT_PROXY}
 
-        # Получаем список пользователей с notify_enabled=1 через API бэкенда
-        resp = _requests.get(f"{API_BASE}/api/telegram/notify-users", timeout=15)
+        resp = _requests.get(f"{API_BASE}/api/telegram/notify-users",
+                             timeout=15)
         if resp.status_code != 200:
             logger.info(f"notify-users вернул {resp.status_code}, пропускаем")
             return
@@ -842,7 +788,6 @@ def send_telegram_notifications(booking_data: dict):
             logger.info("Нет пользователей с notify_enabled=1")
             return
 
-        # Конвертируем ДД.ММ.ГГГГ → ГГГГ-ММ-ДД (как в Telegram-боте)
         date_str = booking_data.get("date", "")
         parts = date_str.split(".")
         if len(parts) == 3 and len(parts[2]) == 4:
@@ -876,9 +821,8 @@ def send_telegram_notifications(booking_data: dict):
                     proxies=proxies,
                 )
                 if r.status_code != 200:
-                    logger.error(
-                        f"Ошибка отправки уведомления {tg_id}: "
-                        f"HTTP {r.status_code} — {r.text[:200]}")
+                    logger.error(f"Ошибка отправки уведомления {tg_id}: "
+                                 f"HTTP {r.status_code} — {r.text[:200]}")
                 else:
                     logger.info(f"Уведомление отправлено пользователю {tg_id}")
             except Exception as e:
@@ -902,25 +846,25 @@ def send_vk_notifications(booking_data: dict):
     try:
         import requests as _requests
 
-        # Получаем список пользователей с vk_id через API бэкенда
         resp = _requests.get(f"{API_BASE}/api/vk/notify-users", timeout=15)
         if resp.status_code == 404:
             logger.error(
                 "GET %s/api/vk/notify-users вернул 404 — вероятно, backend не перезапущен "
                 "после добавления эндпоинта, либо API_BASE указывает не на тот сервер. "
                 "Проверьте: curl -s %s/api/vk/notify-users и перезапустите backend.",
-                API_BASE, API_BASE,
+                API_BASE,
+                API_BASE,
             )
             return
         if resp.status_code != 200:
-            logger.info(f"vk/notify-users вернул {resp.status_code}, пропускаем")
+            logger.info(
+                f"vk/notify-users вернул {resp.status_code}, пропускаем")
             return
         users = resp.json()
         if not users:
             logger.info("Нет пользователей с VK-уведомлениями")
             return
 
-        # Конвертируем ДД.ММ.ГГГГ → ГГГГ-ММ-ДД (как в Telegram-боте)
         date_str = booking_data.get("date", "")
         parts = date_str.split(".")
         if len(parts) == 3 and len(parts[2]) == 4:
@@ -959,10 +903,12 @@ def send_vk_notifications(booking_data: dict):
                     logger.error(
                         f"Ошибка отправки VK-уведомления {vk_id}: {data}")
                 else:
-                    logger.info(f"VK-уведомление отправлено пользователю {vk_id}")
+                    logger.info(
+                        f"VK-уведомление отправлено пользователю {vk_id}")
             except Exception as e:
                 logger.error(
-                    f"Ошибка отправки VK-уведомления пользователю {vk_id}: {e}")
+                    f"Ошибка отправки VK-уведомления пользователю {vk_id}: {e}"
+                )
     except Exception as e:
         logger.error(f"Ошибка получения списка VK-уведомляемых: {e}")
 
@@ -996,7 +942,9 @@ async def show_services_list(message: Message):
 
     text += "\nЧтобы записаться, нажмите «Записаться» в меню."
 
-    await _finish_loader(message, loader_id, text,
+    await _finish_loader(message,
+                         loader_id,
+                         text,
                          keyboard=_kb(get_back_to_menu_keyboard()))
 
 
@@ -1007,8 +955,8 @@ async def show_contacts(message: Message):
         "🏠 Адрес: г. Строитель, ул. Октябрьская, 15\n"
         "🕐 Режим работы: Ежедневно 10:00–20:00\n"
         "📞 Телефон: +7 (915) 526-50-56\n"
-        "🌐 Наш сайт: https://beauty-verbena.ru\n\n"
-        "🔗 Мы в соцсетях:\n"
+        "🔗 Сайт: https://beauty-verbena.ru\n\n"
+        "🌐 Мы в соцсетях:\n"
         "• ВКонтакте: https://vk.ru/verbena.studio31\n"
         "• Telegram: https://t.me/verbenastudio31\n"
         "• MAX: https://max.ru/join/pa9K0R9aGl3Q02_N0A6pvklfZfixDfIVIFgJFKz25Lg\n"
@@ -1139,10 +1087,10 @@ async def submit_career_application(message: Message):
                              json=payload,
                              timeout=10)
         if resp.status_code in (200, 201):
-            await _finish_loader(message, loader_id,
-                                 "✅ Отклик отправлен!\n"
-                                 "Мы свяжемся с вами в ближайшее время.\n"
-                                 "Спасибо за интерес к работе в VERBENA! 🌸")
+            await _finish_loader(
+                message, loader_id, "✅ Отклик отправлен!\n"
+                "Мы свяжемся с вами в ближайшее время.\n"
+                "Спасибо за интерес к работе в VERBENA! 🌸")
         else:
             await _finish_loader(message, loader_id,
                                  "✅ Ваша заявка принята! Мы свяжемся с вами.")
@@ -1153,9 +1101,6 @@ async def submit_career_application(message: Message):
     await _clear_state(message)
     await message.answer(MAIN_MENU_TEXT,
                          keyboard=_kb(get_main_menu_keyboard()))
-
-
-# ─── Fallback: любой необработанный текст ───
 
 
 @bp.on.message()

@@ -27,7 +27,7 @@ def normalize_phone(phone: str) -> str:
     """
     cleaned = re.sub(r"[^\d]", "", phone)
     if cleaned.startswith("7") or cleaned.startswith("8"):
-        # Оставляем как есть — единообразно, без "лишней" 7/8 нормализации
+
         return cleaned
     if cleaned.startswith("+"):
         cleaned = cleaned[1:]
@@ -44,11 +44,11 @@ def get_or_create_client(conn, phone: str, display_name: str = "") -> int:
         raise ValueError(f"Некорректный номер телефона: {phone!r}")
 
     cur = conn.cursor()
-    cur.execute("SELECT id FROM clients WHERE phone = ?", (cleaned,))
+    cur.execute("SELECT id FROM clients WHERE phone = ?", (cleaned, ))
     row = cur.fetchone()
     if row is not None:
         client_id = row["id"] if hasattr(row, "__getitem__") else row[0]
-        # Обновляем display_name, если передан непустой, а старый пустой
+
         if display_name:
             conn.execute(
                 "UPDATE clients SET display_name = CASE "
@@ -60,7 +60,6 @@ def get_or_create_client(conn, phone: str, display_name: str = "") -> int:
             conn.commit()
         return client_id
 
-    # Создаём нового клиента
     cur.execute(
         "INSERT INTO clients (phone, display_name) VALUES (?, ?)",
         (cleaned, display_name or ""),

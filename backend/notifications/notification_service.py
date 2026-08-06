@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 def _fmt_date(iso_date: str) -> str:
     parts = (iso_date or "").split("-")
-    return f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else (iso_date or "")
+    return f"{parts[2]}.{parts[1]}.{parts[0]}" if len(parts) == 3 else (
+        iso_date or "")
 
 
 def _tpl_booking_confirmed(b: dict) -> str:
@@ -33,9 +34,8 @@ def _tpl_booking_confirmed(b: dict) -> str:
         f"💇‍♀️ {b.get('service', '')}\n"
         f"📅 {_fmt_date(b.get('booking_date', ''))} в {b.get('booking_time', '')}\n"
         + (f"👩‍🎨 Мастер: {b['assigned_employee_name']}\n"
-           if b.get("assigned_employee_name") else "")
-        + "\nЖдём вас в студии красоты VERBENA! 🌸"
-    )
+           if b.get("assigned_employee_name") else "") +
+        "\nЖдём вас в студии красоты VERBENA! 🌸")
 
 
 def _tpl_booking_rescheduled(b: dict) -> str:
@@ -51,22 +51,16 @@ def _tpl_booking_cancelled(b: dict) -> str:
         "❌ <b>Запись отменена</b>\n\n"
         f"💇‍♀️ {b.get('service', '')}\n"
         f"📅 {_fmt_date(b.get('booking_date', ''))} в {b.get('booking_time', '')}\n\n"
-        "Будем рады видеть вас снова 🌸"
-    )
+        "Будем рады видеть вас снова 🌸")
 
 
 def _tpl_booking_reminder(b: dict) -> str:
-    return (
-        "⏰ <b>Напоминание о записи</b>\n\n"
-        f"💇‍♀️ {b.get('service', '')}\n"
-        f"📅 Сегодня в {b.get('booking_time', '')}\n\n"
-        "Ждём вас в студии красоты VERBENA! 🌸"
-    )
+    return ("⏰ <b>Напоминание о записи</b>\n\n"
+            f"💇‍♀️ {b.get('service', '')}\n"
+            f"📅 Сегодня в {b.get('booking_time', '')}\n\n"
+            "Ждём вас в студии красоты VERBENA! 🌸")
 
 
-# Добавляйте новые типы уведомлений сюда — единственное место, которое
-# нужно трогать, чтобы завести новый вид уведомления (п.3 ТЗ: "другие
-# уведомления в будущем").
 NOTIFICATION_TEMPLATES = {
     "booking_confirmed": _tpl_booking_confirmed,
     "booking_rescheduled": _tpl_booking_rescheduled,
@@ -98,25 +92,29 @@ def notify_client(db, client_id: int, event: str, booking: dict) -> dict:
 
     links = db.execute(
         "SELECT provider, provider_user_id FROM notification_links WHERE client_id = ?",
-        (client_id,),
+        (client_id, ),
     ).fetchall()
 
     if not links:
-        logger.info(f"У клиента {client_id} нет привязанных каналов уведомлений")
+        logger.info(
+            f"У клиента {client_id} нет привязанных каналов уведомлений")
         return {}
 
     results = {}
     for provider, provider_user_id in links:
         if provider == "telegram":
-            results["telegram"] = send_telegram_notification(provider_user_id, text)
+            results["telegram"] = send_telegram_notification(
+                provider_user_id, text)
         elif provider == "max":
             results["max"] = send_max_notification(provider_user_id, text)
         else:
-            logger.warning(f"Неизвестный провайдер в notification_links: {provider}")
+            logger.warning(
+                f"Неизвестный провайдер в notification_links: {provider}")
 
     failed = [p for p, ok in results.items() if not ok]
     if failed:
-        logger.error(f"Не удалось отправить уведомление ({event}) client_id={client_id} "
-                     f"через: {', '.join(failed)}")
+        logger.error(
+            f"Не удалось отправить уведомление ({event}) client_id={client_id} "
+            f"через: {', '.join(failed)}")
 
     return results

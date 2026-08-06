@@ -2,7 +2,6 @@ let currentUser = null;
 let currentEditId = null;
 let currentUserId = null;
 
-// ─── Авторизация ───
 async function checkAuth() {
   try {
     const res = await fetch("/api/auth/me");
@@ -27,7 +26,6 @@ async function checkAuth() {
   }
 }
 
-// ─── SSE — браузерные уведомления в реальном времени ───
 let sseClient = null;
 let browserNotifyEnabled = false;
 
@@ -35,7 +33,6 @@ function initBrowserNotifications() {
   const toggle = document.getElementById("browserNotifyToggle");
   if (!toggle) return;
 
-  // Восстанавливаем состояние из localStorage
   browserNotifyEnabled = localStorage.getItem("browser_notify_enabled") === "1";
   toggle.checked = browserNotifyEnabled;
 
@@ -47,7 +44,6 @@ function initBrowserNotifications() {
     );
 
     if (browserNotifyEnabled) {
-      // Запрашиваем разрешение на уведомления
       if ("Notification" in window) {
         if (Notification.permission === "granted") {
           connectSSE();
@@ -90,7 +86,6 @@ function initBrowserNotifications() {
     }
   };
 
-  // Если уже было включено — подключаем SSE
   if (
     browserNotifyEnabled &&
     "Notification" in window &&
@@ -145,12 +140,11 @@ function connectSSE() {
           tag: "new-booking",
         });
       }
-      // Автообновление дашборда
+
       if (typeof loadAll === "function") loadAll();
     });
 
     sseClient.onerror = function () {
-      // При ошибке пробуем переподключиться через 5 секунд
       setTimeout(() => {
         if (sseClient) {
           sseClient.close();
@@ -185,17 +179,14 @@ async function loadNotifySettings() {
     const inputEl = document.getElementById("notifyInput");
     const tgInput = document.getElementById("notifyTelegramId");
 
-    // ... (блок с tgInput.value оставляем как есть) ...
     if (tgInput) tgInput.value = me.telegram_id || "";
 
-    // VK-карточка
     const vkToggle = document.getElementById("vkNotifyToggle");
     const vkStatusEl = document.getElementById("vkNotifyStatus");
     const vkInputEl = document.getElementById("vkNotifyInput");
     const vkInput = document.getElementById("notifyVkId");
 
     if (vkToggle) {
-      // ✅ ИСПРАВЛЕНО: используем !! вместо === 1
       const vkEnabled = !!me.vk_id && !!me.vk_notify_enabled;
       vkToggle.checked = vkEnabled;
       vkStatusEl.style.display = "none";
@@ -203,9 +194,7 @@ async function loadNotifySettings() {
       if (vkInput) vkInput.value = me.vk_id || "";
     }
 
-    // TG-карточка
     if (toggle) {
-      // ✅ ИСПРАВЛЕНО: используем !! вместо === 1
       toggle.checked = !!me.telegram_id && !!me.notify_enabled;
     }
 
@@ -225,7 +214,6 @@ function initNotifyToggleEvents() {
 
   toggle.onchange = function () {
     if (this.checked) {
-      // Если Telegram ID не указан — показываем поле ввода
       if (!tgInput || !tgInput.value.trim()) {
         if (inputEl) inputEl.style.display = "block";
         if (statusEl) {
@@ -240,7 +228,6 @@ function initNotifyToggleEvents() {
     }
   };
 
-  // VK-переключатель
   const vkToggle = document.getElementById("vkNotifyToggle");
   const vkStatusEl = document.getElementById("vkNotifyStatus");
   const vkInputEl = document.getElementById("vkNotifyInput");
@@ -270,14 +257,12 @@ async function saveNotifySettings() {
   const statusEl = document.getElementById("notifyStatus");
   const inputEl = document.getElementById("notifyInput");
 
-  // VK-карточка
   const vkToggle = document.getElementById("vkNotifyToggle");
   const vkStatusEl = document.getElementById("vkNotifyStatus");
   const vkInputEl = document.getElementById("vkNotifyInput");
   const vkInput = document.getElementById("notifyVkId");
   const vkId = vkInput ? vkInput.value.trim() : "";
 
-  // Валидация Telegram ID
   if (telegramId && !/^\d+$/.test(telegramId)) {
     showToast("Telegram ID должен содержать только цифры", "error");
     toggle.checked = false;
@@ -289,15 +274,12 @@ async function saveNotifySettings() {
     return;
   }
 
-  // Валидация VK ID
   if (vkId && !/^\d+$/.test(vkId)) {
     showToast("VK ID должен содержать только цифры", "error");
     if (vkToggle) vkToggle.checked = false;
     return;
   }
 
-  // Независимые флаги: notify_enabled — для Telegram,
-  // vk_notify_enabled — для VK
   const notifyEnabled = toggle.checked ? 1 : 0;
   const vkNotifyEnabled = vkToggle && vkToggle.checked ? 1 : 0;
 
@@ -318,8 +300,7 @@ async function saveNotifySettings() {
     statusEl.style.display = "none";
     if (vkInputEl) vkInputEl.style.display = "none";
     if (vkStatusEl) vkStatusEl.style.display = "none";
-    // Синхронизируем слайдеры с реальным состоянием БД,
-    // чтобы переключатель VK был включён после сохранения
+
     await loadNotifySettings();
   } catch (e) {
     showToast(e.message, "error");
@@ -332,13 +313,11 @@ async function logout() {
   window.location.href = "/admin/login";
 }
 
-// ─── Сворачивание сайдбара ───
 document.addEventListener("DOMContentLoaded", () => {
   const sidebar = document.getElementById("sidebar");
   const collapseBtn = document.getElementById("sidebarCollapseBtn");
   if (!sidebar || !collapseBtn) return;
 
-  // Восстанавливаем состояние
   const collapsed = localStorage.getItem("sidebar_collapsed") === "1";
   if (collapsed) sidebar.classList.add("collapsed");
 
@@ -351,7 +330,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// ─── Гамбургер ───
 document.addEventListener("click", (e) => {
   const toggle = document.getElementById("sidebarToggle");
   const sidebar = document.querySelector(".sidebar");
@@ -372,7 +350,6 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ─── Навигация + закрытие мобильного меню ───
 document.querySelectorAll(".sidebar-link[data-tab]").forEach((link) => {
   link.addEventListener("click", (e) => {
     e.preventDefault();
@@ -394,7 +371,6 @@ document.querySelectorAll(".sidebar-link[data-tab]").forEach((link) => {
     if (link.dataset.tab === "profile") loadProfile();
     if (link.dataset.tab === "data") loadDataManagement();
 
-    // Закрыть мобильное меню при переходе
     if (window.innerWidth <= 768) {
       document.querySelector(".sidebar")?.classList.remove("open");
       document.getElementById("sidebarOverlay")?.classList.remove("open");
@@ -409,7 +385,6 @@ document.querySelectorAll(".sidebar-link[data-tab]").forEach((link) => {
 //     await Promise.all([loadStats(), loadDashboard(), loadBookings(), loadHistory(), loadFilters()]);
 // }
 async function loadAll() {
-  // Загружаем только то, что показывается
   await Promise.all([loadFilters()]);
 }
 
@@ -513,10 +488,8 @@ async function loadFilters() {
   }
 }
 
-// ─── Кеш записей для модалки действий ───
 let _bookingsCache = [];
 
-// ─── Заполнить выпадающий список сотрудников в модалке подтверждения ───
 async function loadEmployeesFilterForAction() {
   try {
     const res = await fetch("/api/employees/list");
@@ -626,7 +599,6 @@ async function loadBookings() {
 }
 
 async function loadSchedule() {
-  // ВРЕМЕННО ОТКЛЮЧЕНО: не подтягиваем данные в таблицу занятости
   return;
 
   /*
@@ -671,7 +643,6 @@ async function loadSchedule() {
     */
 }
 
-// ─── Инициализация календаря для занятости ───
 function initScheduleDatePicker() {
   createDatePicker("scheduleDate", scheduleDateRange, {
     rangeMode: true,
@@ -681,7 +652,6 @@ function initScheduleDatePicker() {
   });
 }
 
-// ─── Career (отклики) ───
 async function loadCareer() {
   try {
     const res = await fetch("/api/career/applications");
@@ -708,11 +678,9 @@ async function loadCareer() {
           : "—";
         var cover = a.cover_letter || "—";
 
-        // ✅ Добавили поддержку VK
         var source =
           a.source === "tg" ? "Telegram" : a.source === "vk" ? "VK" : "Сайт";
 
-        // ✅ Кнопка удаления
         var deleteBtn = `<button class="btn btn-sm btn-danger" onclick="deleteCareerApp(${a.id})" title="Удалить отклик">✕</button>`;
 
         return (
@@ -757,7 +725,6 @@ async function loadCareer() {
   }
 }
 
-// ✅ Функция удаления отклика (добавляем сразу после loadCareer)
 async function deleteCareerApp(id) {
   if (!confirm(`Удалить отклик #${id}? Это действие необратимо.`)) return;
   try {
@@ -779,7 +746,6 @@ function escapeHtml(text) {
 }
 
 async function loadHistory() {
-  // ВРЕМЕННО ОТКЛЮЧЕНО: не подтягиваем данные в таблицу истории
   return;
 
   /*
@@ -836,7 +802,6 @@ async function loadHistory() {
     */
 }
 
-// ─── Выпадающий список выбора фильтров истории ───
 function toggleFilterDropdown(e) {
   e.stopPropagation();
   const dd = document.getElementById("filterDropdown");
@@ -871,7 +836,6 @@ function applyFilterSelection() {
   });
 }
 
-// ─── Фикс скролла для iOS ───
 let _scrollY = 0;
 function lockBodyScroll(lock) {
   const body = document.body;
@@ -926,7 +890,6 @@ function createDatePicker(inputId, state, options = {}) {
   if (state.start) viewDate = new Date(state.start);
   let awaitingEnd = false; // true = ждём вторую дату, не закрываем календарь
 
-  // Контейнер для поля и кнопки очистки
   const wrapper = document.createElement("div");
   wrapper.style.cssText =
     "display:inline-flex;align-items:center;gap:4px;position:relative";
@@ -1048,14 +1011,11 @@ function createDatePicker(inputId, state, options = {}) {
 
           if (rangeMode) {
             if (!state.start || (state.start && state.end)) {
-              // Первый клик — начало диапазона
               state.start = clicked;
               state.end = null;
               awaitingEnd = true;
             } else {
-              // Второй клик — конец диапазона
               if (clicked.getTime() === state.start.getTime()) {
-                // Клик по той же дате — одиночный день
                 state.end = clicked;
               } else if (clicked < state.start) {
                 state.end = new Date(state.start);
@@ -1073,7 +1033,6 @@ function createDatePicker(inputId, state, options = {}) {
           updateInputLabel();
           renderCalendar();
 
-          // Закрываем и вызываем onChange только когда диапазон выбран полностью
           if (!rangeMode || !awaitingEnd) {
             calendar.style.display = "none";
             onChange();
@@ -1083,7 +1042,6 @@ function createDatePicker(inputId, state, options = {}) {
     positionCalendar();
   }
 
-  // Кнопка очистки
   clearBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     state.start = null;
@@ -1150,7 +1108,6 @@ async function loadUsers() {
   }
 }
 
-// ─── Модалка записи ───
 async function openEditModal(id) {
   currentEditId = id;
   try {
@@ -1179,7 +1136,7 @@ async function openEditModal(id) {
         !isEmployee && this.value === "completed" ? "block" : "none";
     };
     document.getElementById("editModal").style.display = "flex";
-    // Сбросить состояние календаря перед инициализацией
+
     editDatePickerState = { start: null, end: null };
     initDatePicker();
   } catch (e) {
@@ -1193,7 +1150,6 @@ function closeEditModal() {
   destroyDatePicker();
 }
 
-// Заполнение поля времени поминутно (шаг 15 мин) — не зависит от ФОС
 function populateTimeSelect(selectId, selectedTime) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
@@ -1210,7 +1166,6 @@ function populateTimeSelect(selectId, selectedTime) {
   if (selectedTime) sel.value = selectedTime;
 }
 
-// ─── Создание новой записи из админ-панели ───
 async function openNewBookingModal() {
   currentEditId = null;
   try {
@@ -1252,7 +1207,6 @@ async function saveEdit() {
   const date = document.getElementById("editDate").value;
   const time = document.getElementById("editTime").value;
 
-  // Проверка пересечения по времени
   if (date && time && empId) {
     const conflict = await checkTimeConflict(date, time, empId, currentEditId);
     if (conflict) {
@@ -1305,7 +1259,6 @@ async function saveEdit() {
   }
 }
 
-// ─── Поиск в кеше записей ───
 function getCachedBooking(id) {
   return _bookingsCache.find((b) => b.id === id) || null;
 }
@@ -1313,15 +1266,14 @@ function getCachedBooking(id) {
 async function loadBookingForAction(id) {
   const booking = await getBookingById(id);
   if (booking) {
-    // Сохраняем в кеш
     const existingIdx = _bookingsCache.findIndex((b) => b.id === id);
     if (existingIdx >= 0) _bookingsCache[existingIdx] = booking;
     else _bookingsCache.push(booking);
-    // Переоткрываем модалку
+
     openActionModal(id, "confirm");
     return;
   }
-  // Если не нашли — открываем обычную модалку подтверждения без проверки
+
   actionBookingId = id;
   actionType = "confirm";
   document.getElementById("actionModalTitle").textContent =
@@ -1335,7 +1287,6 @@ async function loadBookingForAction(id) {
   document.getElementById("actionModal").style.display = "flex";
 }
 
-// ─── Модалка действий (подтвердить / выполнить / отменить) ───
 let actionBookingId = null;
 let actionType = null; // 'confirm' | 'complete' | 'cancel'
 
@@ -1344,20 +1295,18 @@ function openActionModal(id, type) {
   actionType = type;
   let title, text, btnLabel, btnClass;
 
-  // Скрываем поле выбора сотрудника по умолчанию
   document.getElementById("actionEmployeeRow").style.display = "none";
 
   if (type === "confirm") {
-    // Проверяем, назначен ли сотрудник
     const booking = getCachedBooking(id);
     if (booking && !booking.assigned_employee_id) {
       title = "Назначить мастера";
       text = "Чтобы взять заявку в работу, укажи мастера:";
       btnLabel = "✓ Подтвердить и назначить";
       btnClass = "btn btn-success";
-      // Показываем выпадающий список сотрудников
+
       document.getElementById("actionEmployeeRow").style.display = "block";
-      // Загружаем сотрудников
+
       loadEmployeesFilterForAction();
     } else if (booking && booking.assigned_employee_id) {
       title = "Подтвердить заявку";
@@ -1365,7 +1314,6 @@ function openActionModal(id, type) {
       btnLabel = "✓ Подтвердить";
       btnClass = "btn btn-success";
     } else {
-      // Если запись ещё не загружена — загружаем и переоткрываем
       loadBookingForAction(id);
       return;
     }
@@ -1382,7 +1330,7 @@ function openActionModal(id, type) {
   }
   document.getElementById("actionModalTitle").textContent = title;
   document.getElementById("actionModalText").textContent = text;
-  // Поле цены доступно и админу, и сотруднику при завершении
+
   const showPrice = type === "complete";
   document.getElementById("actionPriceRow").style.display = showPrice
     ? "block"
@@ -1405,14 +1353,12 @@ async function confirmAction() {
   const type = actionType;
   let data;
   if (type === "confirm") {
-    // Проверяем, нужно ли назначить сотрудника
     const empEl = document.getElementById("actionEmployee");
     const empSel = empEl ? empEl.value : "";
     const empNameEl = empEl ? empEl.options[empEl.selectedIndex]?.text : "";
     const empName =
       empSel && empNameEl !== "— Выбери мастера —" ? empNameEl : "";
 
-    // Если форма с выбором сотрудника видна — значит сотрудник не назначен
     const empRow = document.getElementById("actionEmployeeRow");
     if (empRow && empRow.style.display !== "none") {
       if (!empSel) {
@@ -1459,7 +1405,6 @@ async function deleteBooking(id) {
   openActionModal(id, "cancel");
 }
 
-// ─── Toast уведомления ───
 function showToast(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
@@ -1472,7 +1417,6 @@ function showToast(message, type = "success") {
   }, 3000);
 }
 
-// ─── Модалка сотрудника ───
 async function openUserModal(id) {
   currentUserId = id || null;
   document.getElementById("userModalTitle").textContent = id
@@ -1488,7 +1432,6 @@ async function openUserModal(id) {
   document.getElementById("userNotifyEnabled").checked = false;
   document.getElementById("userRole").value = "employee";
 
-  // Показываем/скрываем notifyRow в зависимости от telegram_id
   const notifyRow = document.getElementById("notifyRow");
   document
     .getElementById("userTelegramId")
@@ -1521,7 +1464,6 @@ async function openUserModal(id) {
     }
   }
 
-  // Валидация Telegram ID при вводе (только цифры)
   const tgInput = document.getElementById("userTelegramId");
   tgInput.addEventListener("input", function () {
     this.value = this.value.replace(/\D/g, "");
@@ -1595,7 +1537,6 @@ async function deleteUser(id) {
   }
 }
 
-// ─── Профиль ───
 async function loadProfile() {
   try {
     const res = await fetch("/api/users");
@@ -1605,7 +1546,6 @@ async function loadProfile() {
       me = users.find((u) => u.id === currentUser?.id);
     }
     if (!me) {
-      // Не админ — получаем через /api/auth/me
       const authRes = await fetch("/api/auth/me");
       if (authRes.status === 200) me = await authRes.json();
     }
@@ -1620,7 +1560,6 @@ async function loadProfile() {
     document.getElementById("profileAvatarLetter").textContent =
       (me.display_name || me.username || "—")[0].toUpperCase();
 
-    // Обновляем кнопку истории
     const historyBtn = document.getElementById("profileHistoryBtn");
     if (historyBtn) {
       const displayName = me.display_name || me.username || "";
@@ -1654,14 +1593,13 @@ async function saveProfile() {
     });
     if (!res.ok) throw new Error("Ошибка сохранения");
     showToast("Профиль обновлён", "success");
-    // Обновляем имя в сайдбаре
+
     document.getElementById("sidebarUserName").textContent = data.display_name;
   } catch (e) {
     showToast(e.message, "error");
   }
 }
 
-// ─── Скрываем браузерные уведомления на мобильных ───
 (function hideBrowserNotifyOnMobile() {
   if (window.innerWidth <= 768) {
     const card = document.getElementById("browserNotifyCard");
@@ -1669,12 +1607,9 @@ async function saveProfile() {
   }
 })();
 
-// ─── Навигация с фильтрами (для кликабельных карточек) ───
 function navigateTo(tab, filters) {
-  // Переключаемся на нужную вкладку
   const links = document.querySelectorAll(`.sidebar-link[data-tab="${tab}"]`);
 
-  // Для профиля — нет sidebar-ссылки, ищем tab напрямую
   if (tab === "profile") {
     document
       .querySelectorAll(".sidebar-link")
@@ -1692,7 +1627,6 @@ function navigateTo(tab, filters) {
 
   if (links.length) links[0].click();
 
-  // Применяем фильтры
   if (tab === "bookings") {
     if (filters.status) {
       const sel = document.getElementById("statusFilter");
@@ -1712,7 +1646,6 @@ function navigateTo(tab, filters) {
   }
 }
 
-// ─── Утилиты ───
 function esc(str) {
   if (str == null) return "\u2014";
   const d = document.createElement("div");
@@ -1730,7 +1663,6 @@ function statusBadge(status) {
   );
 }
 
-// Преобразование ДД.ММ.ГГГГ → ГГГГ-ММ-ДД для корректной сортировки дат
 function sortDate(d) {
   if (!d || typeof d !== "string") return d || "";
   const p = d.split(".");
@@ -1738,14 +1670,13 @@ function sortDate(d) {
   return d;
 }
 
-// ─── Кастомный календарь для поля даты ───
 let editDatePickerState = { start: null, end: null };
 
 function initDatePicker() {
   const el = document.getElementById("editDate");
   if (!el) return;
   if (el.dataset.pickerInited) return;
-  // Если в поле уже есть дата — восстанавливаем состояние
+
   if (el.value) {
     const parts = el.value.split(".");
     if (parts.length === 3 && parts[2].length === 4) {
@@ -1767,12 +1698,12 @@ function destroyDatePicker() {
   const el = document.getElementById("editDate");
   if (el) {
     el.dataset.pickerInited = "";
-    // Удаляем связанный календарь из DOM
+
     const existingCalendar = el
       .closest(".form-row")
       ?.parentElement?.querySelector(".history-calendar");
     if (existingCalendar) existingCalendar.remove();
-    // Или ищем в body
+
     const bodyCalendar = document.querySelector(".history-calendar");
     if (bodyCalendar && bodyCalendar.style.display !== "none") {
       bodyCalendar.remove();
@@ -1781,7 +1712,6 @@ function destroyDatePicker() {
   editDatePickerState = { start: null, end: null };
 }
 
-// ─── Проверка пересечения по времени и сотруднику ───
 async function checkTimeConflict(date, time, employeeId, excludeId) {
   if (!date || !time || !employeeId) return null;
   try {
@@ -1801,7 +1731,6 @@ async function checkTimeConflict(date, time, employeeId, excludeId) {
   }
 }
 
-// ─── Получить запись по ID ───
 async function getBookingById(id) {
   try {
     const res = await fetch(`/api/bookings?status=all`);
@@ -1813,7 +1742,6 @@ async function getBookingById(id) {
   }
 }
 
-// ─── Инициализация ───
 document.addEventListener("DOMContentLoaded", async () => {
   const u = await checkAuth();
   if (u) {
@@ -1830,9 +1758,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-// ─── ЦЕНТР УПРАВЛЕНИЯ ДАННЫМИ (Только для админов) ───
-
-// Переключение подвкладок (Клиенты / Логи)
 function switchDataTab(tab, btn) {
   document.getElementById("data-clients-block").style.display =
     tab === "clients" ? "block" : "none";
@@ -1849,14 +1774,12 @@ function switchDataTab(tab, btn) {
     "btn btn-sm " + (tab === "subs" ? "btn-success" : "btn-secondary"); // НОВОЕ
 }
 
-// Главная функция загрузки при открытии вкладки
 async function loadDataManagement() {
   await loadClientsData();
   await loadLogsData();
   await loadSubscriptionsData(); // НОВОЕ
 }
 
-// 1. Загрузка клиентов
 async function loadClientsData() {
   const tbody = document.getElementById("dataClientsBody");
   if (!tbody) return;
@@ -1896,7 +1819,6 @@ async function loadClientsData() {
   }
 }
 
-// Удаление клиента
 async function deleteClient(id) {
   if (!confirm(`Удалить клиента #${id}? Это действие необратимо.`)) return;
   try {
@@ -1909,7 +1831,6 @@ async function deleteClient(id) {
   }
 }
 
-// 2. Загрузка логов уведомлений
 async function loadLogsData() {
   const tbody = document.getElementById("dataLogsBody");
   if (!tbody) return;
@@ -1951,7 +1872,6 @@ async function loadLogsData() {
   }
 }
 
-// ─── ПОДПИСКИ НА УВЕДОМЛЕНИЯ ───
 async function loadSubscriptionsData() {
   const tbody = document.getElementById("dataSubsBody");
   if (!tbody) return;
@@ -2023,7 +1943,6 @@ async function unbindNotify(userId, channel) {
   }
 }
 
-// ─── УДАЛЕНИЕ ОТКЛИКА ───
 async function deleteCareerApp(id) {
   if (!confirm(`Удалить отклик #${id}? Это действие необратимо.`)) return;
   try {
@@ -2164,14 +2083,13 @@ async function deleteNotifyLog(logId, btnEl) {
       throw new Error(err.error || "HTTP " + res.status);
     }
 
-    // Анимация удаления строки
     if (tr) {
       tr.style.transition = "opacity 0.3s, transform 0.3s";
       tr.style.opacity = "0";
       tr.style.transform = "translateX(20px)";
       setTimeout(() => {
         tr.remove();
-        // Если таблица пуста — показать заглушку
+
         const tbody = document.getElementById("dataLogsBody");
         if (tbody && !tbody.querySelector("tr")) {
           tbody.innerHTML =
@@ -2229,17 +2147,14 @@ function showToast(msg, type) {
 
 /* Автозагрузка при переключении на вкладку логов */
 function switchDataTab(tabName, btnEl) {
-  // Скрываем все блоки
   document.getElementById("data-clients-block").style.display = "none";
   document.getElementById("data-logs-block").style.display = "none";
   document.getElementById("data-subs-block").style.display = "none";
 
-  // Сбрасываем стили кнопок
   document.querySelectorAll('[id^="dataTabBtn"]').forEach((btn) => {
     btn.className = "btn btn-sm btn-secondary";
   });
 
-  // Показываем нужный блок
   if (tabName === "clients") {
     document.getElementById("data-clients-block").style.display = "block";
     document.getElementById("dataTabBtnClients").className =

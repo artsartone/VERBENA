@@ -5,15 +5,13 @@ import csv
 import io
 import time
 
-# ─── Настройка путей (ОБЯЗАТЕЛЬНО ДО ОСТАЛЬНЫХ ИМПОРТОВ) ───
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
-sys.path.insert(0, os.path.join(BASE_DIR, 'notifications'))
+sys.path.insert(0, os.path.join(BASE_DIR, "notifications"))
 
-# Теперь можно импортировать локальные модули
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 import sqlite3
 import json
@@ -22,14 +20,30 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, redirect, request, jsonify, send_from_directory, session, Response, stream_with_context
+from flask import (
+    Flask,
+    redirect,
+    request,
+    jsonify,
+    send_from_directory,
+    session,
+    Response,
+    stream_with_context,
+)
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date
 
 import yclients_api as yc
 from client_identity import get_or_create_client
-from notification_link import create_token, build_deeplink, link_directly, is_linked, redeem_token, PROVIDERS
+from notification_link import (
+    create_token,
+    build_deeplink,
+    link_directly,
+    is_linked,
+    redeem_token,
+    PROVIDERS,
+)
 from notification_service import notify_client
 import logging
 import subprocess, urllib.parse
@@ -41,7 +55,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ─── Формат дат ───
 def to_iso_date(dd_mm_yyyy):
     """ДД.ММ.ГГГГ → ГГГГ-ММ-ДД (для БД/SQL)."""
     if not dd_mm_yyyy or not isinstance(dd_mm_yyyy, str):
@@ -77,7 +90,6 @@ app = Flask(__name__,
             static_folder=None,
             template_folder=os.path.join(BASE_DIR, "templates"))
 
-# ─── SECRET_KEY ───
 _secret_key_env = os.environ.get("SECRET_KEY")
 if _secret_key_env:
     app.secret_key = _secret_key_env
@@ -102,7 +114,6 @@ CORS(app, supports_credentials=True)
 DB_PATH = os.path.join(BASE_DIR, "beauty.db")
 
 
-# ─── Очистка записей старше 2 дней ───
 def _cleanup_old_bookings():
     """Удаляет записи и историю старше 2 дней, вызывается при старте и раз в сутки."""
     try:
@@ -132,14 +143,9 @@ def _run_daily_cleanup():
         _cleanup_old_bookings()
 
 
-# Инициализируем БД
-# Очищаем при старте
 _cleanup_old_bookings()
 threading.Thread(target=_run_daily_cleanup, daemon=True).start()
 
-# ─── SSE уведомления (поток событий) ───
-# Каждый клиент SSE регистрирует свою очередь.
-# При создании записи событие публикуется во все очереди.
 _sse_clients = []
 _sse_lock = threading.Lock()
 
@@ -155,12 +161,10 @@ def sse_broadcast(event_type, data):
                     _sse_clients.remove(q)
 
 
-# ──────────── БД ────────────
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # 1. Создаем основные таблицы
     cur.executescript("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,7 +242,6 @@ def init_db():
     """)
     conn.commit()
 
-    # 2. Добавляем недостающие колонки (БЕЗОПАСНО через try/except)
     migrations = [
         "ALTER TABLE users ADD COLUMN position TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE bookings ADD COLUMN assigned_employee_id INTEGER DEFAULT NULL REFERENCES users(id)",
@@ -251,9 +254,8 @@ def init_db():
         "ALTER TABLE users ADD COLUMN vk_notify_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN notify_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bookings ADD COLUMN yclients_staff_id TEXT DEFAULT NULL",
-        # ✅ ВАЖНО: Добавляем ОБЕ колонки для интеграции с YClients
         "ALTER TABLE bookings ADD COLUMN yclients_record_id TEXT DEFAULT NULL",
-        "ALTER TABLE bookings ADD COLUMN yclients_record_hash TEXT DEFAULT NULL"
+        "ALTER TABLE bookings ADD COLUMN yclients_record_hash TEXT DEFAULT NULL",
     ]
 
     for sql in migrations:
@@ -264,10 +266,10 @@ def init_db():
 
     conn.commit()
 
-    # 3. Миграция дат (ДД.ММ.ГГГГ -> ГГГГ-ММ-ДД)
-    # Делаем это ПОСЛЕ добавления всех колонок, чтобы избежать конфликтов
-    for table, col in [("bookings", "booking_date"),
-                       ("services_history", "completed_at")]:
+    for table, col in [
+        ("bookings", "booking_date"),
+        ("services_history", "completed_at"),
+    ]:
         try:
             cur.execute(
                 f"SELECT id, {col} FROM {table} WHERE {col} LIKE '__.__.____'")
@@ -281,7 +283,6 @@ def init_db():
 
     conn.commit()
 
-    # 4. Создание дефолтных пользователей
     defaults = [
         ("admin", "admin123", "admin", "Администратор", "Руководитель"),
         ("employee", "employee123", "employee", "Сотрудник", "Мастер"),
@@ -291,12 +292,16 @@ def init_db():
         if not cur.fetchone():
             cur.execute(
                 "INSERT INTO users (username, password_hash, role, display_name, position) VALUES (?, ?, ?, ?, ?)",
-                (username, generate_password_hash(password), role,
-                 display_name, position),
+                (
+                    username,
+                    generate_password_hash(password),
+                    role,
+                    display_name,
+                    position,
+                ),
             )
     conn.commit()
 
-    # 5. Инициализация схемы уведомлений
     notification_schema_path = os.path.join(BASE_DIR, "notifications",
                                             "notification_schema.sql")
     if os.path.exists(notification_schema_path):
@@ -308,7 +313,6 @@ def init_db():
         except sqlite3.OperationalError as e:
             logger.warning(f"Notification schema init warning: {e}")
 
-    # ✅ ЗАКРЫВАЕМ СОЕДИНЕНИЕ ТОЛЬКО ЗДЕСЬ, ПОСЛЕ ВСЕХ ОПЕРАЦИЙ
     conn.close()
 
 
@@ -342,7 +346,6 @@ def admin_required(f):
     return wrapper
 
 
-# ──────────── АВТОРИЗАЦИЯ ────────────
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
     data = request.get_json()
@@ -388,7 +391,8 @@ def auth_me():
     cur = conn.cursor()
     cur.execute(
         "SELECT id, username, role, display_name, position, telegram_id, vk_id, notify_enabled, vk_notify_enabled FROM users WHERE id = ?",
-        (session["user_id"], ))
+        (session["user_id"], ),
+    )
     user = cur.fetchone()
     conn.close()
     if not user:
@@ -406,7 +410,6 @@ def auth_me():
     })
 
 
-# ──────────── ЗАПИСИ ────────────
 @app.route("/api/bookings", methods=["GET"])
 @login_required
 def get_bookings():
@@ -465,8 +468,11 @@ def create_booking():
     """Публичное создание записи + SSE-уведомление."""
     data = request.get_json()
     required = [
-        "client_name", "client_phone", "service", "booking_date",
-        "booking_time"
+        "client_name",
+        "client_phone",
+        "service",
+        "booking_date",
+        "booking_time",
     ]
     field_names = {
         "client_name": "Клиент",
@@ -477,10 +483,13 @@ def create_booking():
     }
     for field in required:
         if not data.get(field):
-            return jsonify({
-                "error":
-                f"Пожалуйста, заполните поле «{field_names.get(field, field)}»"
-            }), 400
+            return (
+                jsonify({
+                    "error":
+                    f"Пожалуйста, заполните поле «{field_names.get(field, field)}»"
+                }),
+                400,
+            )
     data["booking_date"] = to_iso_date(data.get("booking_date", ""))
     conn = get_db()
     cur = conn.cursor()
@@ -507,15 +516,18 @@ def create_booking():
             return jsonify({"error": "Это время уже занято"}), 409
     phone = (data.get("client_phone") or "").strip()
     if phone != "—" and phone != "-":
-        cleaned = phone.replace("+", "").replace(" ",
-                                                 "").replace("-", "").replace(
-                                                     "(", "").replace(")", "")
+        cleaned = (phone.replace("+",
+                                 "").replace(" ", "").replace("-", "").replace(
+                                     "(", "").replace(")", ""))
         if not cleaned.isdigit() or len(cleaned) < 10:
-            return jsonify({
-                "error":
-                "Телефон должен быть в формате +71234567890 или «—»"
-            }), 400
-    # ─── Resolve/create client_id from phone (before local insert, before YClients) ───
+            return (
+                jsonify({
+                    "error":
+                    "Телефон должен быть в формате +71234567890 или «—»"
+                }),
+                400,
+            )
+
     client_id = -1
     if phone not in ("—", "-") and len(phone) >= 10:
         try:
@@ -526,7 +538,7 @@ def create_booking():
             logger.warning(f"Не удалось создать клиента: {e}")
         except Exception as e:
             logger.error(f"Ошибка resolve клиента: {e}")
-    # ─── Запись в локальную БД ───
+
     if session.get("user_id"):
         status = data.get("status") or "pending"
     else:
@@ -534,27 +546,33 @@ def create_booking():
     cur.execute(
         """INSERT INTO bookings (client_name, client_phone, service, booking_date, booking_time, status, comment, assigned_employee_id, assigned_employee_name, yclients_staff_id, client_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (data["client_name"],
-         data["client_phone"] if data["client_phone"] != "—" else "",
-         data["service"], data["booking_date"], data["booking_time"], status,
-         data.get("comment", ""), data.get("assigned_employee_id"),
-         data.get("assigned_employee_name", ""),
-         str(data.get("yclients_staff_id")) if data.get("yclients_staff_id")
-         else None, client_id if client_id > 0 else None),
+        (
+            data["client_name"],
+            data["client_phone"] if data["client_phone"] != "—" else "",
+            data["service"],
+            data["booking_date"],
+            data["booking_time"],
+            status,
+            data.get("comment", ""),
+            data.get("assigned_employee_id"),
+            data.get("assigned_employee_name", ""),
+            (str(data.get("yclients_staff_id"))
+             if data.get("yclients_staff_id") else None),
+            client_id if client_id > 0 else None,
+        ),
     )
     conn.commit()
     booking_id = cur.lastrowid
 
-    # ─── Отправка в YClients (если настроено) ───
     yclients_service_id = data.get("yclients_service_id")
     yclients_staff_id = data.get("yclients_staff_id")
     if yclients_service_id and yclients_staff_id and yc.YCLIENTS_TOKEN:
 
         def _send_to_yclients():
             try:
-                # ... (код нормализации телефона и даты остается прежним) ...
-                clean_phone = phone.replace(" ", "").replace("-", "").replace(
-                    "(", "").replace(")", "").replace("+", "")
+
+                clean_phone = (phone.replace(" ", "").replace("-", "").replace(
+                    "(", "").replace(")", "").replace("+", ""))
                 if not clean_phone.startswith(
                         "7") and not clean_phone.startswith("8"):
                     clean_phone = "7" + clean_phone
@@ -575,22 +593,18 @@ def create_booking():
                 )
 
                 if result["success"]:
-                    record_id = result.get('record_id')
-                    record_hash = result.get('hash')
+                    record_id = result.get("record_id")
+                    record_hash = result.get("hash")
 
-                    # Сохраняем ОБА значения в локальную БД
                     n_conn = get_db()
                     n_cur = n_conn.cursor()
                     n_cur.execute(
                         "UPDATE bookings SET yclients_record_id = ?, yclients_record_hash = ? WHERE id = ?",
-                        (str(record_id), record_hash, booking_id))
+                        (str(record_id), record_hash, booking_id),
+                    )
                     n_conn.commit()
                     n_conn.close()
 
-                    # Вычёркиваем занятое время у мастера из уже
-                    # закэшированного /api/public/free-slots на эту дату —
-                    # без этого пользователь увидит слот свободным ещё до
-                    # 5 минут (TTL кэша), хотя запись только что ушла в YClients.
                     _remove_booked_slot_from_cache(yc_date, yclients_staff_id,
                                                    data["booking_time"])
 
@@ -607,6 +621,7 @@ def create_booking():
     def _send_telegram_notify():
         import os as _os
         import logging as _logging
+
         _logger = _logging.getLogger("telegram_notify")
         _logger.setLevel(_logging.INFO)
         if not _logger.handlers:
@@ -621,14 +636,19 @@ def create_booking():
             _logger.warning("BOT_TOKEN не задан — уведомления не отправляются")
             return
         try:
-            # Получаем список уведомляемых через сам API
-            users_raw = subprocess.run([
-                "curl", "-s", "--max-time", "5",
-                "http://127.0.0.1:5000/api/telegram/notify-users"
-            ],
-                                       capture_output=True,
-                                       text=True,
-                                       timeout=10)
+
+            users_raw = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    "--max-time",
+                    "5",
+                    "http://127.0.0.1:5000/api/telegram/notify-users",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             if users_raw.returncode != 0:
                 _logger.error(
                     f"Ошибка вызова notify-users: stderr={users_raw.stderr}")
@@ -637,16 +657,15 @@ def create_booking():
             if not users:
                 _logger.info("Нет пользователей с notify_enabled=1")
                 return
-            # Дедупликация: не отправляем дважды для одной записи.
-            # SQLite блокирует БД при параллельной записи, поэтому делаем retry;
-            # при любой ошибке НЕ отправляем (чтобы избежать дубля).
+
             for attempt in range(10):
                 try:
                     dup_conn = sqlite3.connect(DB_PATH, timeout=10)
                     dup_cur = dup_conn.cursor()
                     dup_cur.execute(
                         "INSERT OR IGNORE INTO notification_log (booking_id, channel) VALUES (?, 'tg')",
-                        (booking_id, ))
+                        (booking_id, ),
+                    )
                     dup_inserted = dup_cur.rowcount
                     dup_conn.commit()
                     dup_conn.close()
@@ -661,6 +680,7 @@ def create_booking():
                     )
                     dup_inserted = 0
                     import time as _time
+
                     _time.sleep(0.3)
             if dup_inserted == 0:
                 _logger.info(
@@ -728,6 +748,7 @@ def create_booking():
         """VK-уведомления о новой записи (для источников: сайт, ТГ, VK)."""
         import os as _os
         import logging as _logging
+
         _logger = _logging.getLogger("vk_notify")
         _logger.setLevel(_logging.INFO)
         if not _logger.handlers:
@@ -743,14 +764,19 @@ def create_booking():
             return
         try:
             import requests as _requests
-            # Получаем список уведомляемых через сам API
-            users_raw = subprocess.run([
-                "curl", "-s", "--max-time", "5",
-                "http://127.0.0.1:5000/api/vk/notify-users"
-            ],
-                                       capture_output=True,
-                                       text=True,
-                                       timeout=10)
+
+            users_raw = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    "--max-time",
+                    "5",
+                    "http://127.0.0.1:5000/api/vk/notify-users",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             if users_raw.returncode != 0:
                 _logger.error(
                     f"Ошибка вызова vk/notify-users: stderr={users_raw.stderr}"
@@ -760,16 +786,15 @@ def create_booking():
             if not users:
                 _logger.info("Нет пользователей с vk_notify_enabled=1")
                 return
-            # Дедупликация: не отправляем дважды для одной записи.
-            # SQLite блокирует БД при параллельной записи, поэтому делаем retry;
-            # при любой ошибке НЕ отправляем (чтобы избежать дубля).
+
             for attempt in range(10):
                 try:
                     dup_conn = sqlite3.connect(DB_PATH, timeout=10)
                     dup_cur = dup_conn.cursor()
                     dup_cur.execute(
                         "INSERT OR IGNORE INTO notification_log (booking_id, channel) VALUES (?, 'vk')",
-                        (booking_id, ))
+                        (booking_id, ),
+                    )
                     dup_inserted = dup_cur.rowcount
                     dup_conn.commit()
                     dup_conn.close()
@@ -784,6 +809,7 @@ def create_booking():
                     )
                     dup_inserted = 0
                     import time as _time
+
                     _time.sleep(0.3)
             if dup_inserted == 0:
                 _logger.info(
@@ -832,11 +858,14 @@ def create_booking():
 
     threading.Thread(target=_send_telegram_notify, daemon=True).start()
     threading.Thread(target=_send_vk_notify, daemon=True).start()
-    return jsonify({
-        "id": booking_id,
-        "client_id": client_id,
-        "message": "Запись создана"
-    }), 201
+    return (
+        jsonify({
+            "id": booking_id,
+            "client_id": client_id,
+            "message": "Запись создана"
+        }),
+        201,
+    )
 
 
 @app.post("/api/admin/restart-bot/<bot_name>")
@@ -873,20 +902,21 @@ def update_booking(booking_id):
     params = []
     if "booking_date" in data:
         data["booking_date"] = to_iso_date(data["booking_date"])
-    # ─── Читаем текущее состояние ДО любых изменений ───
+
     cur.execute("SELECT * FROM bookings WHERE id = ?", (booking_id, ))
     old_row = cur.fetchone()
     if not old_row:
         conn.close()
         return jsonify({"error": "Запись не найдена"}), 404
     old_booking = dict(old_row)
-    if "booking_date" in data or "booking_time" in data or "assigned_employee_id" in data or "yclients_staff_id" in data:
+    if ("booking_date" in data or "booking_time" in data
+            or "assigned_employee_id" in data or "yclients_staff_id" in data):
         new_date = data.get("booking_date") or None
         new_time = data.get("booking_time") or None
         local_emp_id = data.get("assigned_employee_id") or None
         yc_staff_id = data.get("yclients_staff_id") or None
-        if new_date and new_time and (local_emp_id is not None
-                                      or yc_staff_id is not None):
+        if (new_date and new_time
+                and (local_emp_id is not None or yc_staff_id is not None)):
             if local_emp_id is not None:
                 cur.execute(
                     "SELECT id FROM bookings WHERE booking_date = ? AND booking_time = ? AND assigned_employee_id = ? AND status IN ('active','pending') AND id != ?",
@@ -899,10 +929,13 @@ def update_booking(booking_id):
                 )
             if cur.fetchone():
                 conn.close()
-                return jsonify({
-                    "error":
-                    f"На {new_date} в {new_time} у сотрудника уже есть запись"
-                }), 409
+                return (
+                    jsonify({
+                        "error":
+                        f"На {new_date} в {new_time} у сотрудника уже есть запись"
+                    }),
+                    409,
+                )
     if "status" in data:
         updates.append("status = ?")
         params.append(data["status"])
@@ -910,14 +943,21 @@ def update_booking(booking_id):
             cur.execute("SELECT * FROM bookings WHERE id = ?", (booking_id, ))
             b = cur.fetchone()
             if b:
-                emp_name = b["assigned_employee_name"] if b[
-                    "assigned_employee_name"] else data.get(
-                        "assigned_employee_name", "")
+                emp_name = (b["assigned_employee_name"]
+                            if b["assigned_employee_name"] else data.get(
+                                "assigned_employee_name", ""))
                 cur.execute(
                     """INSERT INTO services_history (booking_id, client_name, client_phone, service, price, status, assigned_employee_name)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (b[0], b[1], b[2], b[3], data.get(
-                        "price", ""), data["status"], emp_name),
+                    (
+                        b[0],
+                        b[1],
+                        b[2],
+                        b[3],
+                        data.get("price", ""),
+                        data["status"],
+                        emp_name,
+                    ),
                 )
     if "comment" in data:
         updates.append("comment = ?")
@@ -952,7 +992,7 @@ def update_booking(booking_id):
             params,
         )
     conn.commit()
-    # ─── Детектируем реальное изменение даты/времени сравнением с old_booking ───
+
     reschedule_date = data.get("booking_date") or old_booking["booking_date"]
     reschedule_time = data.get("booking_time") or old_booking["booking_time"]
     date_changed = ("booking_date" in data
@@ -1030,7 +1070,6 @@ def get_available_times():
     } for s in all_slots])
 
 
-# ──────────── ИСТОРИЯ ────────────
 @app.route("/api/history", methods=["GET"])
 @login_required
 def get_history():
@@ -1079,7 +1118,6 @@ def get_history():
     return jsonify(rows)
 
 
-# ──────────── СТАТИСТИКА ────────────
 @app.route("/api/stats", methods=["GET"])
 @login_required
 def get_stats():
@@ -1117,7 +1155,6 @@ def get_stats():
     return jsonify(result)
 
 
-# ──────────── УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ────────────
 @app.route("/api/users", methods=["GET"])
 @admin_required
 def get_users():
@@ -1155,8 +1192,15 @@ def create_user():
             {"error": "Пользователь с таким логином уже существует"}), 409
     cur.execute(
         "INSERT INTO users (username, password_hash, role, display_name, position, telegram_id, notify_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (username, generate_password_hash(password), role, display_name,
-         position, telegram_id, notify_enabled),
+        (
+            username,
+            generate_password_hash(password),
+            role,
+            display_name,
+            position,
+            telegram_id,
+            notify_enabled,
+        ),
     )
     conn.commit()
     user_id = cur.lastrowid
@@ -1196,8 +1240,11 @@ def update_user(user_id):
                         params)
         except sqlite3.IntegrityError:
             conn.close()
-            return jsonify(
-                {"error": "Пользователь с таким логином уже существует"}), 409
+            return (
+                jsonify(
+                    {"error": "Пользователь с таким логином уже существует"}),
+                409,
+            )
     conn.commit()
     conn.close()
     return jsonify({"message": "Пользователь обновлён"})
@@ -1216,7 +1263,6 @@ def delete_user(user_id):
     return jsonify({"message": "Пользователь удалён"})
 
 
-# ──────────── TELEGRAM API ────────────
 # [ЗАКОММЕНТИРОВАНО] Мои записи / клиентские уведомления — отключено
 # @app.route("/api/telegram/link-phone", methods=["POST"])
 # def telegram_link_phone():
@@ -1302,19 +1348,19 @@ def delete_user(user_id):
 def auth_update_notify():
     data = request.get_json()
 
-    # ✅ Безопасный парсер булевых значений
     def parse_bool(val):
-        if isinstance(val, bool): return 1 if val else 0
-        if isinstance(val, (int, float)): return 1 if val else 0
+        if isinstance(val, bool):
+            return 1 if val else 0
+        if isinstance(val, (int, float)):
+            return 1 if val else 0
         if isinstance(val, str):
-            return 1 if val.strip().lower() in ('1', 'true', 'yes',
-                                                'on') else 0
+            return 1 if val.strip().lower() in ("1", "true", "yes",
+                                                "on") else 0
         return 0
 
     telegram_id = (data.get("telegram_id") or "").strip()
     vk_id = (data.get("vk_id") or "").strip()
 
-    # ✅ Используем парсер вместо прямого if/else
     notify_enabled = parse_bool(data.get("notify_enabled"))
     vk_notify_enabled = parse_bool(data.get("vk_notify_enabled"))
 
@@ -1323,7 +1369,8 @@ def auth_update_notify():
     cur.execute(
         "UPDATE users SET telegram_id = ?, vk_id = ?, notify_enabled = ?, vk_notify_enabled = ? WHERE id = ?",
         (telegram_id, vk_id, notify_enabled, vk_notify_enabled,
-         session["user_id"]))
+         session["user_id"]),
+    )
     conn.commit()
     conn.close()
 
@@ -1358,7 +1405,6 @@ def vk_notify_users():
     return jsonify(rows)
 
 
-# ──────────── SSE (браузерные уведомления) ────────────
 @app.route("/api/events/stream")
 @login_required
 def sse_event_stream():
@@ -1369,7 +1415,7 @@ def sse_event_stream():
         with _sse_lock:
             _sse_clients.append(q)
         try:
-            # Отправляем keepalive каждые 25 секунд
+
             while True:
                 try:
                     event_type, data = q.get(timeout=25)
@@ -1394,7 +1440,6 @@ def sse_event_stream():
     )
 
 
-# ──────────── РАСПИСАНИЕ СОТРУДНИКОВ ────────────
 @app.route("/api/employees/schedule", methods=["GET"])
 @login_required
 def get_employee_schedule():
@@ -1447,23 +1492,11 @@ def get_employees_list():
     return jsonify(rows)
 
 
-# ──────────── КЭШИРОВАНИЕ ────────────
-# Простое in-memory кэширование для YClients API
 _ycache = {}
 _ycache_lock = threading.Lock()
 _ycache_key_locks = {}
 _ycache_key_locks_lock = threading.Lock()
 _YCACHE_TTL = 300  # 5 минут
-
-# _YC_MAX_WORKERS раньше задавал размер пула потоков для параллельных
-# запросов к YClients (по одному на мастера) при расчёте free-slots.
-# С переходом на GET .../staff/schedule (см. _calculate_free_slots) расчёт
-# на дату больше не делает запрос на каждого мастера — вся занятость и
-# рабочие окна на диапазон дат приходят одним запросом, поэтому пул
-# потоков здесь не нужен. Оставлена только пауза между "раундами" прогрева
-# соседних дат (см. _prewarm_free_slots) — с ней прогрев не делает
-# несколько запросов к YClients единым всплеском, даже если что-то ещё
-# обращается к API параллельно.
 
 
 @app.route("/api/public/free-slots", methods=["GET"])
@@ -1475,26 +1508,14 @@ def public_free_slots():
 
     def fetch():
         errors = []
-        # 1. Получаем список всех мастеров, доступных для онлайн-записи (без фильтрации по услугам)
-        # Это вызывает GET /staff/{id}/booking_settings и смотрит record=1
+
         staff_list = yc.get_staff_for_booking(
             error_flag=errors)  # <--- УБРАЛИ service_ids
 
         if errors or not staff_list:
-            # Если не удалось получить список мастеров, возвращаем пустой результат
+
             return {"staff": [], "date": date_str}
 
-        # 2. Теперь для каждого мастера из списка запрашиваем его свободные слоты на дату
-        #    Используем get_available_times с service_ids=None, чтобы получить общие окна
-        #
-        #    Запросы идут ПАРАЛЛЕЛЬНО (пул потоков), а не последовательно —
-        #    иначе при N мастерах ответ ждёт N последовательных round-trip'ов
-        #    к YClients (тормозило именно на этом, а не на самом API).
-        #    Общий лимит запросов/сек к YClients (_rate_limit_wait в
-        #    yclients_api.py) потокобезопасен и применяется глобально для
-        #    всего процесса, так что параллелить здесь безопасно — лимит
-        #    всё равно не будет превышен, просто запросы не будут ждать
-        #    друг друга по сети сверх необходимого.
         result = []
         max_workers = min(8, len(staff_list)) or 1
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -1505,7 +1526,8 @@ def public_free_slots():
                     staff_id=str(staff_member.get("id")),
                     date_str=date_str,
                     error_flag=errors,
-                ): staff_member
+                ):
+                staff_member
                 for staff_member in staff_list
             }
             for future in future_to_staff:
@@ -1515,7 +1537,9 @@ def public_free_slots():
                 try:
                     times = future.result()
                 except Exception as e:
-                    logger.error(f"free-slots: сбой запроса для мастера {staff_id}: {e}")
+                    logger.error(
+                        f"free-slots: сбой запроса для мастера {staff_id}: {e}"
+                    )
                     times = []
 
                 if times:  # Если у мастера есть свободные слоты
@@ -1524,12 +1548,11 @@ def public_free_slots():
                         "name": staff_name,
                         "free_slots": [{
                             "time": t
-                        } for t in times]
+                        } for t in times],
                     })
 
         return {"staff": result, "date": date_str}
 
-    # Используем кэширование
     cache_key = f"public_free_slots_{date_str}"
     data = get_cached(cache_key, fetch, ttl=300)
     return jsonify(data)
@@ -1560,8 +1583,8 @@ def get_cached(key, fetch_func, ttl=None):
         with _ycache_lock:
             if key in _ycache:
                 entry = _ycache[key]
-                if datetime.now().timestamp() - entry['timestamp'] < ttl:
-                    return entry['data'], True
+                if datetime.now().timestamp() - entry["timestamp"] < ttl:
+                    return entry["data"], True
         return None, False
 
     data, found = _read_if_fresh()
@@ -1570,17 +1593,16 @@ def get_cached(key, fetch_func, ttl=None):
 
     key_lock = _get_key_lock(key)
     with key_lock:
-        # Пока ждали lock, кэш мог наполниться другим потоком — перечитываем
+
         data, found = _read_if_fresh()
         if found:
             return data
 
-        # Кэш отсутствует или устарел — получаем свежие данные
         data = fetch_func()
         with _ycache_lock:
             _ycache[key] = {
-                'data': data,
-                'timestamp': datetime.now().timestamp()
+                "data": data,
+                "timestamp": datetime.now().timestamp()
             }
         return data
 
@@ -1623,9 +1645,9 @@ def get_cached_dynamic(key, fetch_func, ttl_success=None, ttl_error=20):
         with _ycache_lock:
             if key in _ycache:
                 entry = _ycache[key]
-                entry_ttl = entry.get('ttl', ttl_success)
-                if datetime.now().timestamp() - entry['timestamp'] < entry_ttl:
-                    return entry['data'], entry.get('had_errors', False), True
+                entry_ttl = entry.get("ttl", ttl_success)
+                if datetime.now().timestamp() - entry["timestamp"] < entry_ttl:
+                    return entry["data"], entry.get("had_errors", False), True
         return None, False, False
 
     data, had_errors, found = _read_if_fresh()
@@ -1646,22 +1668,12 @@ def get_cached_dynamic(key, fetch_func, ttl_success=None, ttl_error=20):
                 f"кэшируем результат всего на {ttl}с вместо {ttl_success}с")
         with _ycache_lock:
             _ycache[key] = {
-                'data': result,
-                'timestamp': datetime.now().timestamp(),
-                'ttl': ttl,
-                'had_errors': had_errors,
+                "data": result,
+                "timestamp": datetime.now().timestamp(),
+                "ttl": ttl,
+                "had_errors": had_errors,
             }
         return result, had_errors
-
-
-# ──────────── ПОСЛЕДНИЙ НАДЁЖНЫЙ РЕЗУЛЬТАТ FREE-SLOTS ────────────
-# На проде (больше услуг/мастеров, чем в тестовом аккаунте) YClients
-# иногда отдаёт под нагрузкой формально успешный (200 OK), но полностью
-# пустой ответ — без единой HTTP-ошибки. Обычный error_flag/retry это
-# не ловит. Поэтому храним отдельно последний результат, который прошёл
-# без признаков сбоя (см. эвристики внутри _calculate_free_slots), и
-# если новый расчёт выглядит подозрительно — отдаём пользователю его,
-# а не свежую "пустоту", пока не подтвердится, что она настоящая.
 
 
 def _remove_booked_slot_from_cache(date_str, staff_id, time_str):
@@ -1671,25 +1683,6 @@ def _remove_booked_slot_from_cache(date_str, staff_id, time_str):
             del _ycache[key]
 
 
-# ──────────── ФОНОВЫЙ ПРОГРЕВ КЭША FREE-SLOTS ────────────
-# Раньше кэш заполнялся только "по требованию" — первый посетитель дня
-# сам вызывал холодный расчёт и получал (или не получал) весь его риск
-# на себя. Теперь фоновый поток сам поддерживает кэш тёплым для
-# ближайших дней, обновляя его заметно чаще, чем истекает TTL, — так что
-# обычные посетители почти всегда просто читают готовый кэш, а не
-# запускают синхронный расчёт с всплеском запросов к YClients.
-
-# Шаг, с которым генерируются старты свободных окон внутри рабочего
-# времени мастера за вычетом busy_intervals (см. _calculate_free_slots).
-# GET .../staff/schedule не квантует рабочие окна по шагу записи
-# конкретной услуги (в отличие от book_times) — он просто отдаёт
-# "рабочие часы минус уже существующие записи". Поэтому шаг для превью
-# задаём сами; 30 минут — разумный компромисс между полезностью
-# превью и тем, чтобы не предлагать старты, которые реально не влезут
-# под большинство услуг сети.
-
-
-# ──────────── СПИСОК УСЛУГ ────────────
 @app.route("/api/services", methods=["GET"])
 @login_required
 def get_services_list():
@@ -1705,7 +1698,6 @@ def get_services_list():
     return jsonify(sorted(set(rows)))
 
 
-# ──────────── YCLIENTS API ────────────
 @app.route("/api/yclients/check", methods=["GET"])
 def yclients_check():
     """Check YClients API connection."""
@@ -1718,7 +1710,8 @@ def get_public_services():
     """Публичный endpoint для сайта — возвращает услуги из YClients."""
     try:
         category_id = request.args.get("category_id")
-        cache_key = f'public_services_cat_{category_id}' if category_id else 'public_services_all'
+        cache_key = (f"public_services_cat_{category_id}"
+                     if category_id else "public_services_all")
         services = get_cached(cache_key,
                               lambda: yc.get_services(category_id=category_id))
 
@@ -1744,11 +1737,14 @@ def get_public_services():
         return jsonify({"success": True, "data": formatted})
     except Exception as e:
         logger.error(f"Ошибка при получении публичных услуг: {e}")
-        return jsonify({
-            "success": False,
-            "error": "Не удалось загрузить услуги",
-            "data": []
-        }), 500
+        return (
+            jsonify({
+                "success": False,
+                "error": "Не удалось загрузить услуги",
+                "data": []
+            }),
+            500,
+        )
 
 
 @app.route("/api/service_categories", methods=["GET"])
@@ -1758,22 +1754,25 @@ def get_service_categories_public():
     Использует кэширование для снижения нагрузки на API.
     """
     try:
-        categories = get_cached('service_categories',
+        categories = get_cached("service_categories",
                                 lambda: yc.get_service_categories())
-        # Форматируем ответ для фронтенда
+
         formatted = [{
             "id": cat.get("id"),
             "title": cat.get("title", "Без названия"),
-            "category_id": cat.get("category_id")
+            "category_id": cat.get("category_id"),
         } for cat in (categories or [])]
         return jsonify({"success": True, "data": formatted})
     except Exception as e:
         logger.error(f"Ошибка при получении категорий: {e}")
-        return jsonify({
-            "success": False,
-            "error": "Не удалось загрузить категории",
-            "data": []
-        }), 500
+        return (
+            jsonify({
+                "success": False,
+                "error": "Не удалось загрузить категории",
+                "data": [],
+            }),
+            500,
+        )
 
 
 @app.route("/api/yclients/categories", methods=["GET"])
@@ -1781,7 +1780,7 @@ def yclients_categories():
     """Fetch service categories from YClients (admin).
     Кэшируем под тем же ключом, что и /api/service_categories — это один
     и тот же вызов yc.get_service_categories(), не нужно дублировать."""
-    categories = get_cached('service_categories',
+    categories = get_cached("service_categories",
                             lambda: yc.get_service_categories())
     return jsonify(categories)
 
@@ -1797,7 +1796,7 @@ def yclients_services():
     if category_id:
         services = yc.get_services(category_id=category_id)
     else:
-        services = get_cached('services_list', lambda: yc.get_services())
+        services = get_cached("services_list", lambda: yc.get_services())
     return jsonify(services)
 
 
@@ -1823,7 +1822,6 @@ def yclients_available_times():
     if not service_id or not staff_id or not date:
         return jsonify({"error": "service_id, staff_id, date required"}), 400
 
-    # Приводим дату к ISO формату (YYYY-MM-DD), если пришла в ДД.ММ.ГГГГ
     if "." in date:
         parts = date.split(".")
         if len(parts) == 3:
@@ -1875,9 +1873,8 @@ def _extract_available_dates_from_schedule(schedule_data):
     """
     available_dates = set()
 
-    # schedule_data предполагается как список: [{"id": "...", "days": {...}}, ...]
     if not isinstance(schedule_data, list):
-        # Если пришёл не список, логично завершить работу
+
         print(
             f"WARNING: Expected schedule_data to be a list, got {type(schedule_data)}"
         )
@@ -1904,7 +1901,6 @@ def _extract_available_dates_from_schedule(schedule_data):
             if not working_start or not working_end:
                 continue  # Не работал в этот день
 
-            # Преобразуем время начала/конца в минуты от полуночи
             try:
                 start_time = datetime.strptime(working_start, "%H:%M")
                 end_time = datetime.strptime(working_end, "%H:%M")
@@ -1913,30 +1909,27 @@ def _extract_available_dates_from_schedule(schedule_data):
             except ValueError:
                 continue  # Невалидное время
 
-            # Сортируем занятые интервалы
             sorted_busy = sorted(busy_intervals,
-                                 key=lambda x: x.get('start', '23:59'))
+                                 key=lambda x: x.get("start", "23:59"))
             current_start = work_start_mins
 
             has_free_time = False
             for interval in sorted_busy:
-                # Преобразуем занятые интервалы в минуты
+
                 try:
-                    start_t = datetime.strptime(interval['start'], "%H:%M")
-                    end_t = datetime.strptime(interval['end'], "%H:%M")
+                    start_t = datetime.strptime(interval["start"], "%H:%M")
+                    end_t = datetime.strptime(interval["end"], "%H:%M")
                     busy_start_mins = start_t.hour * 60 + start_t.minute
                     busy_end_mins = end_t.hour * 60 + end_t.minute
                 except (ValueError, KeyError):
                     continue  # Пропускаем невалидный интервал
 
-                # Есть ли место между концом предыдущего и началом текущего?
                 if current_start < busy_start_mins:
                     if busy_start_mins - current_start >= 30:  # Минимум 30 мин
                         has_free_time = True
                         break  # Нашли хотя бы одно окно
                 current_start = max(current_start, busy_end_mins)
 
-            # Проверяем остаток времени после последнего занятого интервала
             if not has_free_time and current_start < work_end_mins:
                 if work_end_mins - current_start >= 30:  # Минимум 30 мин
                     has_free_time = True
@@ -1961,13 +1954,14 @@ def public_available_dates():
     month = request.args.get("month")
     year = request.args.get("year")
 
-    dates = yc.get_available_dates(service_id=None,
-                                   month=int(month) if month else None,
-                                   year=int(year) if year else None)
+    dates = yc.get_available_dates(
+        service_id=None,
+        month=int(month) if month else None,
+        year=int(year) if year else None,
+    )
     return jsonify(dates)
 
 
-# ──────────── УВЕДОМЛЕНИЯ (API для привязки) ────────────
 @app.route("/api/notifications/link-token", methods=["POST"])
 def create_notification_link_token():
     """Создать одноразовый токен для перехода сайт→бот и вернуть диплинк."""
@@ -1975,8 +1969,11 @@ def create_notification_link_token():
     client_id = data.get("client_id")
     provider = data.get("provider")
     if not client_id or provider not in PROVIDERS:
-        return jsonify(
-            {"error": "client_id и provider (telegram/max) обязательны"}), 400
+        return (
+            jsonify(
+                {"error": "client_id и provider (telegram/max) обязательны"}),
+            400,
+        )
     conn = get_db()
     try:
         token = create_token(conn, client_id=int(client_id), provider=provider)
@@ -2017,7 +2014,8 @@ def notifications_redeem_token():
             token=token,
             provider=provider,
             provider_user_id=str(provider_user_id),
-            provider_username=data.get("provider_username"))
+            provider_username=data.get("provider_username"),
+        )
     finally:
         conn.close()
     if err:
@@ -2033,31 +2031,39 @@ def notifications_link_direct():
     provider = data.get("provider")
     provider_user_id = data.get("provider_user_id")
     if not client_id or provider not in PROVIDERS or not provider_user_id:
-        return jsonify(
-            {"error":
-             "client_id, provider, provider_user_id обязательны"}), 400
+        return (
+            jsonify(
+                {"error":
+                 "client_id, provider, provider_user_id обязательны"}),
+            400,
+        )
     conn = get_db()
     try:
-        # Пробуем привязать
-        link_directly(conn,
-                      client_id=int(client_id),
-                      provider=provider,
-                      provider_user_id=str(provider_user_id),
-                      provider_username=data.get("provider_username"))
+
+        link_directly(
+            conn,
+            client_id=int(client_id),
+            provider=provider,
+            provider_user_id=str(provider_user_id),
+            provider_username=data.get("provider_username"),
+        )
         conn.commit()
         return jsonify({"message": "Привязано", "linked": True}), 200
     except Exception as e:
-        # Если произошла ошибка (например, дубликат), проверяем статус
+
         linked = is_linked(conn, client_id=int(client_id), provider=provider)
         if linked:
-            # Если уже привязано — считаем это успехом
+
             return jsonify({"message": "Уже привязано", "linked": True}), 200
         else:
             logger.error(f"Ошибка при прямой привязке уведомлений: {e}")
-            return jsonify({
-                "error": "Не удалось подключить уведомления",
-                "details": str(e)
-            }), 500
+            return (
+                jsonify({
+                    "error": "Не удалось подключить уведомления",
+                    "details": str(e)
+                }),
+                500,
+            )
     finally:
         conn.close()
 
@@ -2075,20 +2081,20 @@ def notifications_unlink_direct():
     conn = get_db()
     try:
         cur = conn.cursor()
-        # Удаляем запись о привязке
+
         cur.execute(
             "DELETE FROM notification_links WHERE client_id = ? AND provider = ?",
-            (int(client_id), provider))
+            (int(client_id), provider),
+        )
         conn.commit()
 
-        # Возвращаем понятный ответ для бота
         if cur.rowcount > 0:
             return jsonify({
                 "message": "Уведомления отключены",
                 "linked": False
             }), 200
         else:
-            # Даже если записи не было, считаем это успешным состоянием "не привязан"
+
             return jsonify({
                 "message": "Подписка не найдена",
                 "linked": False
@@ -2101,7 +2107,6 @@ def notifications_unlink_direct():
         conn.close()
 
 
-# ──────────── CAREER ────────────
 @app.route("/api/career/submit", methods=["POST"])
 def career_submit():
     """Публичная отправка заявки на трудоустройство (с сайта или из ТГ бота)."""
@@ -2110,19 +2115,25 @@ def career_submit():
     client_phone = (data.get("client_phone") or "").strip()
     experience = (data.get("experience") or "").strip()
 
-    # ✅ Валидация имени: только буквы, минимум 2 символа
-    if len(client_name) < 2 or not re.match(r'^[a-zA-Zа-яА-ЯёЁ\s\-]+$',
+    if len(client_name) < 2 or not re.match(r"^[a-zA-Zа-яА-ЯёЁ\s\-]+$",
                                             client_name):
-        return jsonify(
-            {"error":
-             "Имя должно содержать только буквы (минимум 2 символа)"}), 400
+        return (
+            jsonify({
+                "error":
+                "Имя должно содержать только буквы (минимум 2 символа)"
+            }),
+            400,
+        )
 
-    # ✅ Валидация телефона: минимум 10 цифр
-    phone_clean = re.sub(r'\D', '', client_phone)
+    phone_clean = re.sub(r"\D", "", client_phone)
     if len(phone_clean) < 10:
-        return jsonify(
-            {"error":
-             "Введите корректный номер телефона (минимум 10 цифр)"}), 400
+        return (
+            jsonify({
+                "error":
+                "Введите корректный номер телефона (минимум 10 цифр)"
+            }),
+            400,
+        )
 
     if not client_name or not client_phone or not experience:
         return jsonify({"error": "Имя, телефон и опыт обязательны"}), 400
@@ -2131,7 +2142,6 @@ def career_submit():
     source = (data.get("source") or "site").strip()
     telegram_id = (data.get("telegram_id") or "").strip()
 
-    # ✅ Если есть telegram_id, но source не указан или "site" — это отклик из Telegram
     if telegram_id and source == "site":
         source = "tg"
 
@@ -2140,8 +2150,15 @@ def career_submit():
     cur.execute(
         """INSERT INTO career_applications (client_name, client_phone, experience, resume, cover_letter, source, telegram_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (client_name, client_phone, experience, resume, cover_letter, source,
-         telegram_id),
+        (
+            client_name,
+            client_phone,
+            experience,
+            resume,
+            cover_letter,
+            source,
+            telegram_id,
+        ),
     )
     conn.commit()
     conn.close()
@@ -2160,7 +2177,6 @@ def career_applications():
     return jsonify(rows)
 
 
-# ──────────── СТРАНИЦЫ ────────────
 SITE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -2195,14 +2211,14 @@ def admin_login_page():
 
 @app.errorhandler(401)
 def unauthorized(e):
-    if request.path.startswith('/api/'):
+    if request.path.startswith("/api/"):
         return jsonify({"error": "Не авторизован"}), 401
     return redirect("/admin/login")
 
 
 @app.errorhandler(404)
 def not_found(e):
-    if request.path.startswith('/admin'):
+    if request.path.startswith("/admin"):
         return send_from_directory(app.template_folder, "login.html")
     return jsonify({"error": "Страница не найдена"}), 404
 
@@ -2238,9 +2254,6 @@ def serve_site_static(filename):
         if os.path.exists(file_path) and not os.path.isdir(file_path):
             return send_from_directory(directory, filename)
     return jsonify({"error": "Файл не найден"}), 404
-
-
-# ──────────── ЦЕНТР УПРАВЛЕНИЯ ДАННЫМИ ────────────
 
 
 @app.route("/api/data/clients", methods=["GET"])
@@ -2291,9 +2304,6 @@ def get_notification_logs():
     return jsonify(rows)
 
 
-# ═══════════════════════════════════════════════════════════════
-# УДАЛЕНИЕ ЛОГА УВЕДОМЛЕНИЯ
-# ══════════════════════════════════════════════════════════════
 @app.route("/api/data/logs/notifications/<int:log_id>", methods=["DELETE"])
 @admin_required
 def delete_notification_log(log_id):
@@ -2340,8 +2350,14 @@ def export_data(table_type):
             "SELECT id, client_name, client_phone, service, booking_date, booking_time, status, assigned_employee_name FROM bookings"
         )
         headers = [
-            "ID", "Клиент", "Телефон", "Услуга", "Дата", "Время", "Статус",
-            "Мастер"
+            "ID",
+            "Клиент",
+            "Телефон",
+            "Услуга",
+            "Дата",
+            "Время",
+            "Статус",
+            "Мастер",
         ]
     elif table_type == "career":
         cur.execute(
@@ -2355,22 +2371,23 @@ def export_data(table_type):
     rows = cur.fetchall()
     conn.close()
 
-    # Генерируем CSV
     si = io.StringIO()
     cw = csv.writer(si)
     cw.writerow(headers)
     cw.writerows(rows)
 
     output = si.getvalue()
-    # Добавляем BOM для корректного отображения кириллицы в Excel
+
     output = "\ufeff" + output
 
-    return Response(output,
-                    mimetype="text/csv",
-                    headers={
-                        "Content-Disposition":
-                        f"attachment;filename={table_type}_export.csv"
-                    })
+    return Response(
+        output,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition":
+            f"attachment;filename={table_type}_export.csv"
+        },
+    )
 
 
 @app.get("/api/admin/bots/status")
@@ -2383,16 +2400,16 @@ def bots_status():
     for service in services:
 
         try:
-            output = subprocess.check_output(
+            output = (subprocess.check_output(
                 ["systemctl", "is-active", service],
-                stderr=subprocess.STDOUT).decode().strip()
+                stderr=subprocess.STDOUT).decode().strip())
 
         except FileNotFoundError:
-            # Windows локально
+
             output = "local"
 
         except subprocess.CalledProcessError:
-            # Linux, сервис выключен
+
             output = "inactive"
 
         except Exception as e:
@@ -2401,9 +2418,6 @@ def bots_status():
         result[service] = output
 
     return jsonify(result)
-
-
-# ──────────── ПОДПИСКИ И УДАЛЕНИЕ ОТКЛИКОВ ────────────
 
 
 @app.route("/api/data/subscriptions", methods=["GET"])
@@ -2430,14 +2444,16 @@ def delete_subscription(user_id, channel):
     """Отвязать ID и выключить уведомления для конкретного канала (tg или vk)."""
     conn = get_db()
     cur = conn.cursor()
-    if channel == 'tg':
+    if channel == "tg":
         cur.execute(
             "UPDATE users SET telegram_id = '', notify_enabled = 0 WHERE id = ?",
-            (user_id, ))
-    elif channel == 'vk':
+            (user_id, ),
+        )
+    elif channel == "vk":
         cur.execute(
             "UPDATE users SET vk_id = '', vk_notify_enabled = 0 WHERE id = ?",
-            (user_id, ))
+            (user_id, ),
+        )
     else:
         conn.close()
         return jsonify({"error": "Неизвестный канал"}), 400
@@ -2458,10 +2474,6 @@ def delete_career_application(app_id):
     return jsonify({"message": "Отклик удален"})
 
 
-# ─── ПУБЛИЧНЫЙ ГРАФИК (СВОБОДНЫЕ ОКНА) ────────────
-
-
-# ─── ПУБЛИЧНЫЙ ГРАФИК (СВОБОДНЫЕ ОКНА) ────────────
 def _slots_to_intervals(slots):
     """
     Преобразует список времён ['10:00', '10:15', '10:30', '12:00']
@@ -2509,7 +2521,7 @@ def public_schedule_page():
 
 
 if __name__ == "__main__":
-    # Инициализируем БД (здесь функция уже точно определена)
+
     init_db()
 
     debug_mode = os.environ.get("FLASK_DEBUG") == "1"

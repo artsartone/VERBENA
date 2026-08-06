@@ -10,21 +10,18 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Загружаем .env из backend/.env (как в Telegram боте)
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / "backend" / ".env"
 if ENV_PATH.exists():
     load_dotenv(dotenv_path=ENV_PATH)
 
-# ─── Конфигурация VK ───
 VK_GROUP_ID = os.environ.get("VK_GROUP_ID", "")
 BOT_TOKEN_VK = os.environ.get("BOT_TOKEN_VK", "")
 VK_CONFIRMATION_TOKEN = os.environ.get("VK_CONFIRMATION_TOKEN", "")
 
-# ─── API Base ───
 API_BASE = os.environ.get("API_BASE", "http://localhost:5000")
 
-# ─── Проверка конфигурации ───
+
 def check_config() -> bool:
     """Проверить, что все необходимые переменные настроены."""
     if not VK_GROUP_ID:

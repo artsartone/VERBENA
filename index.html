@@ -916,8 +916,6 @@
     <script src="js/toast.js"></script>
     <script src="js/script.js"></script>
     <script>
-      // ─── Career form submit ───
-      // ─── Career modal open/close & submit ───
       (function () {
         var modal = document.getElementById("careerModal");
         var btn = document.getElementById("careerBtn");
@@ -942,7 +940,6 @@
           document.body.style.overflow = "";
         }
 
-        // Привязываем открытие ко всем кнопкам, которые могут открывать эту модалку
         document
           .querySelectorAll(
             "[data-open-career], #careerBtn, .footer-career-btn",
@@ -972,7 +969,6 @@
           }
         });
 
-        // ─── Career form submit WITH VALIDATION ───
         if (form) {
           form.addEventListener("submit", async function (e) {
             e.preventDefault();
@@ -995,7 +991,6 @@
             var coverLetter =
               document.getElementById("careerCoverLetter")?.value.trim() || "";
 
-            // ✅ 1. Валидация имени: только буквы, пробелы, дефисы, апострофы. Минимум 2 символа.
             if (
               !name ||
               name.length < 2 ||
@@ -1010,7 +1005,6 @@
               return; // Прерываем отправку
             }
 
-            // ✅ 2. Валидация телефона: минимум 10 цифр
             var phoneClean = phone.replace(/[^\d]/g, "");
             if (phoneClean.length < 10) {
               if (errorEl) {
@@ -1022,7 +1016,6 @@
               return; // Прерываем отправку
             }
 
-            // ✅ 3. Валидация опыта
             if (!experience || experience.length < 3) {
               if (errorEl) {
                 errorEl.textContent =
@@ -1063,7 +1056,6 @@
                 body: JSON.stringify(payload),
               });
 
-              // ✅ 4. ПРАВИЛЬНАЯ ПРОВЕРКА ОТВЕТА СЕРВЕРА
               if (!resp.ok) {
                 var errData = await resp.json().catch(() => ({}));
                 throw new Error(
@@ -1072,7 +1064,6 @@
                 );
               }
 
-              // Если всё хорошо, показываем успех
               var overlay = document.createElement("div");
               overlay.className = "success-overlay";
               overlay.innerHTML =
@@ -1101,7 +1092,6 @@
               form.reset(); // ✅ Очищаем форму после успешной отправки
               closeCareerModal();
             } catch (err) {
-              // ✅ Показываем ошибку пользователю, если валидация на бэкенде не прошла или сеть упала
               if (errorEl) {
                 errorEl.textContent = err.message;
                 errorEl.classList.add("visible");
@@ -1116,7 +1106,6 @@
         }
       })();
 
-      // Открытие попапа контактов из мобильной нижней навигации
       (function () {
         var btn = document.querySelector(".mobile-nav-contacts-btn");
         var overlay = document.getElementById("contactsOverlay");
@@ -1130,8 +1119,6 @@
         });
       })();
 
-      // Боковая навигация: раскрывается только по осознанному тапу/клику
-      // (и по вытягиванию мышью), скролл страницы её не открывает
       (function () {
         var nav = document.querySelector(".side-nav");
         if (!nav) return;
@@ -1150,7 +1137,6 @@
           nav.style.transform = "";
         }
 
-        // --- Мышь: полноценный drag с живым перетаскиванием ---
         var mouseDragging = false;
         var mouseStartX = 0;
         var mouseStartTranslate = 0;
@@ -1204,13 +1190,6 @@
 
         nav.addEventListener("mousedown", onMouseDown);
 
-        // --- Touch: только чистый тап, без перехвата скролла ---
-        // Никакого setPointerCapture, никакого preventDefault и никакого
-        // "живого" transform. Причина срабатывания на скролл: быстрый флик
-        // может дать почти нулевое смещение и короткую длительность на самом
-        // касании — по дистанции/времени это неотличимо от тапа. Поэтому
-        // ориентируемся на факт реального скролла страницы (событие scroll),
-        // а не на геометрию касания.
         var touchActive = false;
         var scrolledDuringTouch = false;
         var touchStartX = 0;
@@ -1244,7 +1223,6 @@
             touchActive = false;
 
             if (scrolledDuringTouch) {
-              // Страница реально проскроллилась во время касания — это скролл, не тап
               justOpened = false;
               return;
             }
@@ -1256,7 +1234,6 @@
             var moved = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
             if (moved > TOUCH_MOVE_LIMIT) {
-              // Палец сместился — не тап, панель не трогаем
               justOpened = false;
               return;
             }
@@ -1264,8 +1241,7 @@
             if (!isOpen) {
               setOpen(true);
               justOpened = true;
-              // Тап, который только открыл панель, не должен ещё и
-              // перейти по ссылке/кнопке под пальцем
+
               e.preventDefault();
             } else {
               justOpened = false;
@@ -1283,8 +1259,6 @@
           { passive: true },
         );
 
-        // Клик, который только открыл панель (мышью), не должен ещё и
-        // перейти по ссылке/кнопке
         nav.addEventListener(
           "click",
           function (e) {
@@ -1297,7 +1271,6 @@
           true,
         );
 
-        // Клик/тап вне панели закрывает её
         document.addEventListener("pointerdown", function (e) {
           if (isOpen && !nav.contains(e.target)) {
             setOpen(false);
@@ -1305,7 +1278,6 @@
         });
       })();
 
-      // Боковая навигация: подсветка ссылки текущего раздела при скролле
       (function () {
         var nav = document.querySelector(".side-nav");
         if (!nav) return;
@@ -1342,8 +1314,6 @@
         });
       })();
 
-      // Кастомный список времени синхронизируется script.js (loadAvailableTimes)
-      // Синхронизация подписи toggle при выборе времени
       (function () {
         var select = document.getElementById("clientTime");
         var toggle = document.getElementById("timeSelectToggle");
@@ -1369,15 +1339,12 @@
         syncToggleLabel();
       })();
 
-      // Мобильная навигация: открывается/закрывается только по нажатию на кнопку-триггер
       (function () {
         var nav = document.querySelector(".mobile-nav");
         if (!nav) return;
 
-        // Начинаем скрытой
         nav.classList.add("is-hidden");
 
-        // Создаём кнопку-триггер для скрытия/показа панели
         var toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "mobile-nav-toggle is-active";

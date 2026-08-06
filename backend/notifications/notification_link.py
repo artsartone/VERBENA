@@ -21,15 +21,18 @@ import time
 
 logger = logging.getLogger(__name__)
 
-TOKEN_TTL_SECONDS = 15 * 60  # токен живёт 15 минут
+TOKEN_TTL_SECONDS = 15 * 60
 
-TELEGRAM_BOT_USERNAME = "BeautyVerbenaBot"  # уточнить фактический @username
-MAX_BOT_USERNAME = "BeautyVerbenaBot"       # уточнить фактический ник бота в MAX
+TELEGRAM_BOT_USERNAME = "BeautyVerbenaBot"
+MAX_BOT_USERNAME = "BeautyVerbenaBot"
 
 PROVIDERS = ("telegram", "max")
 
 
-def link_directly(db, client_id: int, provider: str, provider_user_id: str,
+def link_directly(db,
+                  client_id: int,
+                  provider: str,
+                  provider_user_id: str,
                   provider_username: str = None) -> None:
     """Привязать провайдера к client_id напрямую, без одноразового токена.
 
@@ -52,7 +55,8 @@ def link_directly(db, client_id: int, provider: str, provider_user_id: str,
         (client_id, provider, provider_user_id, provider_username),
     )
     db.commit()
-    logger.info(f"Уведомления {provider} напрямую привязаны к client_id={client_id}")
+    logger.info(
+        f"Уведомления {provider} напрямую привязаны к client_id={client_id}")
 
 
 def create_token(db, client_id: int, provider: str) -> str:
@@ -81,7 +85,10 @@ def build_deeplink(provider: str, token: str) -> str:
     raise ValueError(f"unknown provider: {provider}")
 
 
-def redeem_token(db, token: str, provider: str, provider_user_id: str,
+def redeem_token(db,
+                 token: str,
+                 provider: str,
+                 provider_user_id: str,
                  provider_username: str = None):
     """Погасить токен и создать/обновить запись в notification_links.
 
@@ -94,7 +101,7 @@ def redeem_token(db, token: str, provider: str, provider_user_id: str,
     row = db.execute(
         "SELECT client_id, provider, expires_at, used_at "
         "FROM notification_tokens WHERE token = ?",
-        (token,),
+        (token, ),
     ).fetchone()
 
     if row is None:
@@ -111,14 +118,10 @@ def redeem_token(db, token: str, provider: str, provider_user_id: str,
     if used_at is not None:
         return None, "already_used"
 
-    # expires_at хранится как TIMESTAMP — сравнение делает сама СУБД лучше,
-    # но для универсальности (sqlite/postgres) можно дублировать проверку в Python
-    # при необходимости; здесь полагаемся на SQL-условие ниже.
-
     cur = db.execute(
         "UPDATE notification_tokens SET used_at = CURRENT_TIMESTAMP "
         "WHERE token = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
-        (token,),
+        (token, ),
     )
     if cur.rowcount == 0:
         db.commit()

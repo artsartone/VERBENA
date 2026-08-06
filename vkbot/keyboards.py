@@ -66,7 +66,6 @@ def get_categories_keyboard(categories: list) -> Keyboard:
     """
     keyboard = Keyboard(inline=True)
 
-    # Оставляем максимум 5 категорий (5 рядов + ряд «Назад» = 6)
     for cat_id, title in categories[:5]:
         keyboard.add(
             Text(title, payload={
@@ -237,7 +236,7 @@ def get_dates_keyboard(dates: list, page: int = 0) -> Keyboard:
 
     row_count = 0
     for date_str in page_dates:
-        # Форматируем: ДД.ММ → ДД.ММ (ДНЬ)
+
         parts = date_str.split(".")
         if len(parts) == 3:
             day, month, year = parts

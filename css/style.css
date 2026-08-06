@@ -96,7 +96,6 @@ html {
 body {
   background: #bac4a2;
   color: #293222;
-  /* overflow-x НЕ ставим — это ломает auto-hide браузера */
 }
 
 .hero {
@@ -126,7 +125,6 @@ body {
   visibility: visible;
 }
 
-/* Премиум-контент модального окна — светлый, с тонированным фоном */
 .modal-content {
   background: linear-gradient(145deg, #fbfcf7 0%, #f5f7ef 100%);
   border-radius: 28px;
@@ -160,13 +158,13 @@ body {
     transform: translateY(30px) scale(0.96);
     opacity: 0;
   }
+
   to {
     transform: translateY(0) scale(1);
     opacity: 1;
   }
 }
 
-/* Заголовок формы */
 .modal-content h2 {
   font-family: "Cormorant Garamond", serif;
   font-size: 30px;
@@ -188,7 +186,6 @@ body {
   border-radius: 2px;
 }
 
-/* Кнопка закрытия — стильная, с иконкой */
 .close-btn {
   position: absolute;
   top: 18px;
@@ -216,7 +213,6 @@ body {
   transform: rotate(90deg);
 }
 
-/* Поля формы */
 .form-group {
   margin-bottom: 18px;
 }
@@ -265,7 +261,6 @@ body {
   box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.1) !important;
 }
 
-/* Кнопка отправки */
 .submit-btn {
   width: 100%;
   padding: 16px;
@@ -293,7 +288,6 @@ body {
   transform: translateY(0);
 }
 
-/* Обёртка времени */
 .form-group-time {
   display: none;
   overflow: hidden;
@@ -313,7 +307,6 @@ body {
   margin-bottom: 18px;
 }
 
-/* Кастомный селект услуги — более элегантный */
 .service-select-toggle {
   width: 100%;
   min-height: 52px;
@@ -362,18 +355,16 @@ body {
   z-index: 30;
 }
 
-/* ─── Мобильная адаптация модалки ─── */
 @media (max-width: 600px) {
   .modal {
     align-items: flex-end;
     padding: 0;
-    /* Фиксируем модалку чтобы фоновая страница не скроллилась сквозь неё */
+
     position: fixed;
     inset: 0;
   }
 
   .modal.active {
-    /* Блокируем скролл body на iOS/Safari */
     overscroll-behavior: contain;
     touch-action: none;
   }
@@ -390,7 +381,7 @@ body {
     transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     box-shadow: 0 -20px 60px rgba(46, 47, 34, 0.2);
     border: none;
-    /* Разрешаем скролл внутри модалки */
+
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
@@ -438,7 +429,6 @@ body {
   }
 }
 
-/* ─── Форма в модалке (дополнения к премиум-стилям) ─── */
 .service-select {
   position: relative;
   width: 100%;
@@ -456,7 +446,6 @@ body {
   display: block;
 }
 
-/* Кастомный список времени (вместо нативного select) */
 .time-select {
   position: relative;
   width: 100%;
@@ -572,7 +561,6 @@ body {
   box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.12) !important;
 }
 
-/* Мобильная адаптация списка времени: такая же как на десктопе — под полем */
 @media (max-width: 600px) {
   .time-select-options {
     position: fixed;
@@ -594,7 +582,6 @@ body {
   }
 }
 
-/* Сообщение об ошибке формы */
 .form-error-msg {
   display: none;
   padding: 12px 16px;
@@ -615,25 +602,29 @@ body {
 }
 
 @keyframes shakeErr {
+
   0%,
   100% {
     transform: translateX(0);
   }
+
   20% {
     transform: translateX(-6px);
   }
+
   40% {
     transform: translateX(6px);
   }
+
   60% {
     transform: translateX(-4px);
   }
+
   80% {
     transform: translateX(4px);
   }
 }
 
-/* Подсветка незаполненных полей */
 .field-error {
   border-color: #e74c3c !important;
   box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.12) !important;
@@ -641,10 +632,12 @@ body {
 }
 
 @keyframes pulseErr {
+
   0%,
   100% {
     box-shadow: 0 0 0 4px rgba(192, 57, 43, 0.12);
   }
+
   50% {
     box-shadow: 0 0 0 8px rgba(192, 57, 43, 0.06);
   }
@@ -705,18 +698,15 @@ body {
   width: 100%;
 }
 
-/* Loader */
 #loader {
   position: fixed;
   inset: 0;
-  background: radial-gradient(
-    circle at 50% 42%,
-    #dde3cc 0%,
-    #c9d2b1 35%,
-    #bac4a2 62%,
-    #b3bd9a 82%,
-    #bac4a2 100%
-  );
+  background: radial-gradient(circle at 50% 42%,
+      #dde3cc 0%,
+      #c9d2b1 35%,
+      #bac4a2 62%,
+      #b3bd9a 82%,
+      #bac4a2 100%);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -746,7 +736,7 @@ body {
     letter-spacing: 3px;
   }
 }
-/* Скрываем скроллбар на прелоадере */
+
 html:has(> body > #loader:not(.hide)),
 body:has(#loader:not(.hide)) {
   overflow: hidden;
@@ -760,22 +750,22 @@ body:has(#loader:not(.hide)) {
   width: 380px;
   height: 380px;
   border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(242, 241, 230, 0.55) 0%,
-    rgba(242, 241, 230, 0.18) 45%,
-    transparent 70%
-  );
+  background: radial-gradient(circle,
+      rgba(242, 241, 230, 0.55) 0%,
+      rgba(242, 241, 230, 0.18) 45%,
+      transparent 70%);
   filter: blur(40px);
   animation: pulseGlow 3.2s ease-in-out infinite;
 }
 
 @keyframes pulseGlow {
+
   0%,
   100% {
     transform: translate(-50%, -50%) scale(1);
     opacity: 0.5;
   }
+
   50% {
     transform: translate(-50%, -50%) scale(1.1);
     opacity: 0.75;
@@ -795,10 +785,12 @@ body:has(#loader:not(.hide)) {
 }
 
 @keyframes bottleFloat {
+
   0%,
   100% {
     transform: translateY(0);
   }
+
   50% {
     transform: translateY(-6px);
   }
@@ -808,6 +800,7 @@ body:has(#loader:not(.hide)) {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -861,7 +854,7 @@ body:has(#loader:not(.hide)) {
   transform: none;
 }
 
-#page > main {
+#page>main {
   flex: 1 0 auto;
 }
 
@@ -998,27 +991,24 @@ button:hover {
   color: #283422;
 }
 
-/* Переливающийся акцент в заголовке hero: светлая волна внутри букв */
 .hero-text h2 span {
   display: block;
   margin-top: 8px;
-  color: #687744; /* фолбэк, если background-clip: text не поддержится */
+  color: #687744;
 }
 
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   .hero-text h2 span {
-    background-image: linear-gradient(
-      100deg,
-      #687744 0%,
-      #687744 28%,
-      #87995c 38%,
-      #bcc998 45%,
-      #dee6c4 50%,
-      #bcc998 55%,
-      #87995c 62%,
-      #687744 72%,
-      #687744 100%
-    );
+    background-image: linear-gradient(100deg,
+        #687744 0%,
+        #687744 28%,
+        #87995c 38%,
+        #bcc998 45%,
+        #dee6c4 50%,
+        #bcc998 55%,
+        #87995c 62%,
+        #687744 72%,
+        #687744 100%);
     background-size: 400% 100%;
     background-position: 0% 50%;
     -webkit-background-clip: text;
@@ -1028,12 +1018,13 @@ button:hover {
   }
 }
 
-/* Полоса света проходит внутри букв, сами буквы неподвижны */
 @keyframes heroTitleSheen {
+
   0%,
   100% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
   }
@@ -1145,7 +1136,6 @@ button:hover {
   transform: translateY(-2px) scale(1.02);
 }
 
-/* Не даём кнопке "+" затемняться, когда наведено меню */
 .hero-booking-group:has(.hero-btn-split:hover) .hero-btn.hero-btn-fixed,
 .hero-booking-group:focus-within .hero-btn.hero-btn-fixed {
   opacity: 1 !important;
@@ -1165,7 +1155,7 @@ button:hover {
   align-items: center;
   justify-content: center;
   flex-wrap: nowrap;
-  gap: 10px; /* отступ между кнопками — не слипаются */
+  gap: 10px;
   padding-left: 0;
   opacity: 0;
   pointer-events: none;
@@ -1179,20 +1169,19 @@ button:hover {
 }
 
 @media (hover: hover) {
-  /* Сбрасываем старый показ от :hover всей группы */
   .hero-booking-group:not(.has-fixed):hover .hero-btn {
     opacity: 1;
     transform: none;
     filter: none;
     pointer-events: auto;
   }
+
   .hero-booking-group:not(.has-fixed):hover .hero-btn-split {
     opacity: 0;
     pointer-events: none;
     transform: translate(-50%, -50%) scale(0.88);
   }
 
-  /* Правильный показ: hover на кнопке ИЛИ на самом меню */
   .hero-booking-group:not(.has-fixed):has(.hero-btn:hover) .hero-btn,
   .hero-booking-group:not(.has-fixed):has(.hero-btn-split:hover) .hero-btn,
   .hero-booking-group:not(.has-fixed):focus-within .hero-btn {
@@ -1202,9 +1191,9 @@ button:hover {
     pointer-events: none;
     animation: none;
   }
+
   .hero-booking-group:not(.has-fixed):has(.hero-btn:hover) .hero-btn-split,
-  .hero-booking-group:not(.has-fixed):has(.hero-btn-split:hover)
-    .hero-btn-split,
+  .hero-booking-group:not(.has-fixed):has(.hero-btn-split:hover) .hero-btn-split,
   .hero-booking-group:not(.has-fixed):focus-within .hero-btn-split {
     opacity: 1;
     pointer-events: auto;
@@ -1262,18 +1251,18 @@ button:hover {
   background: rgba(111, 125, 71, 0.9);
 }
 
-/* Telegram кнопка */
 .hero-btn-split-item--telegram {
   background: rgba(109, 163, 184, 0.75);
 }
+
 .hero-btn-split-item--telegram:hover {
   background: rgba(92, 150, 173, 0.9);
 }
 
-/* VK кнопка */
 .hero-btn-split-item--vk {
   background: rgba(76, 117, 163, 0.75);
 }
+
 .hero-btn-split-item--vk:hover {
   background: rgba(76, 117, 163, 0.9);
   box-shadow:
@@ -1281,7 +1270,6 @@ button:hover {
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-/* ─── Мобильные: по клику выпадают вниз ─── */
 @media (hover: none) {
   .hero-booking-group .hero-btn-split {
     display: flex;
@@ -1307,7 +1295,6 @@ button:hover {
     pointer-events: auto;
   }
 
-  /* Если под кнопкой не хватает места — меню открывается вверх */
   .hero-booking-group.open-up .hero-btn-split {
     top: auto;
     bottom: calc(100% + 12px);
@@ -1351,8 +1338,6 @@ button:hover {
   left: 50%;
 }
 
-/* ─── Mobile: same fixed positioning (matches modal.js's getBoundingClientRect
-   math), just narrower/centered so it doesn't overflow the viewport ─── */
 @media (max-width: 600px) {
   .simple-calendar {
     width: 280px;
@@ -1425,7 +1410,6 @@ button:hover {
   color: #fff;
 }
 
-/* ───────── Стили календаря для выбора диапазона дат в истории ───────── */
 .sc-day.sc-range-start {
   background: #65743d;
   color: #fff;
@@ -1453,11 +1437,6 @@ button:hover {
   background: #dde2cc;
 }
 
-/* ───────── Лоадер календаря (пока грузятся доступные даты) ─────────
-   Общий для .simple-calendar (форма записи) и .schedule-calendar
-   (расписание) — показывается вместо сетки дней, пока не пришёл
-   ответ от бэкенда, чтобы не мигать сначала всеми датами кликабельными,
-   а потом резко задизейбленными. */
 .sc-loader {
   display: flex;
   flex-direction: column;
@@ -1482,7 +1461,6 @@ button:hover {
   font-size: 13px;
 }
 
-/* Кнопка очистки дат */
 .clear-dates-btn {
   background: none;
   border: none;
@@ -1500,7 +1478,6 @@ button:hover {
   background: #fef2f2;
 }
 
-/* Услуги */
 .services {
   background: #f5f7ef;
   padding: 80px 0;
@@ -1538,7 +1515,7 @@ button:hover {
   transition:
     transform 0.3s,
     box-shadow 0.3s;
-  width: calc(33.333% - 22px); /* 3 в ряд на десктопе */
+  width: calc(33.333% - 22px);
   min-width: 300px;
   max-width: 380px;
   flex-grow: 0;
@@ -1597,7 +1574,6 @@ button:hover {
   margin-top: 8px;
 }
 
-/* ═══════════ SCHEDULE CALENDAR ═══════════ */
 .schedule-calendar {
   background: #ffffff;
   border-radius: 12px;
@@ -1701,8 +1677,6 @@ button:hover {
   cursor: default;
 }
 
-/* ═══════════ SCHEDULE SECTION - UPDATED ═══════════ */
-
 .schedule-section .current-date:hover {
   color: #8e9165;
 }
@@ -1719,7 +1693,6 @@ button:hover {
   opacity: 1;
 }
 
-/* Masters Grid - адаптивная сетка как у услуг */
 .schedule-section .masters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -1785,10 +1758,9 @@ button:hover {
   transition: all 0.3s ease;
   cursor: pointer;
 
-  /* ГЛАВНОЕ ИЗМЕНЕНИЕ: flex-grow: 1 (первая единица) разрешает растягиваться */
   flex: 1 1 calc(50% - 5px);
 
-  min-width: 0; /* Обязательно 0, чтобы flex мог сжиматься/растягиваться */
+  min-width: 0;
   min-height: 48px;
   user-select: none;
   box-sizing: border-box;
@@ -1819,7 +1791,6 @@ button:hover {
   font-size: 14px;
 }
 
-/* Mobile adaptations */
 @media (max-width: 768px) {
   .schedule-section .masters-grid {
     grid-template-columns: 1fr;
@@ -1841,45 +1812,40 @@ button:hover {
     padding: 14px 24px;
     margin-bottom: 32px;
   }
+
   .schedule-section .current-date {
     font-size: 17px;
     gap: 8px;
   }
+
   .schedule-section .current-date::before {
     width: 16px;
     height: 16px;
   }
 
-  /* ═══════════ MOBILE ADAPTATION FOR SCHEDULE CALENDAR ═══════════ */
-
   .schedule-calendar {
-    /* Позиционирование строго по центру экрана (модальный стиль) */
     left: 50% !important;
     right: auto !important;
     top: 50% !important;
     bottom: auto !important;
     transform: translate(-50%, -50%) !important;
 
-    /* Ограничения размеров, чтобы не вылетал за экран и скроллился внутри */
     width: calc(100vw - 32px) !important;
     max-width: 340px !important;
     max-height: 85vh !important;
-    max-height: 85dvh !important; /* dvh корректно учитывает адресную строку браузера */
+    max-height: 85dvh !important;
     overflow-y: auto !important;
 
-    /* Премиальный визуал */
     padding: 24px 16px 20px;
     border-radius: 24px;
     box-shadow: 0 24px 60px rgba(41, 50, 34, 0.25);
     border: 1px solid rgba(232, 230, 217, 0.8);
 
-    /* Блокировка скролла фона на iOS и предотвращение случайных зумов */
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: manipulation;
   }
 
-  /* Шапка календаря */
   .schedule-calendar .sc-header {
     margin-bottom: 16px;
     padding-bottom: 16px;
@@ -1889,20 +1855,17 @@ button:hover {
     font-size: 18px;
   }
 
-  /* Кнопки навигации (стрелки) — больше для удобного тапа */
   .schedule-calendar .sc-nav {
     width: 40px;
     height: 40px;
     font-size: 18px;
   }
 
-  /* Дни недели */
   .schedule-calendar .sc-weekdays span {
     font-size: 12px;
     padding: 8px 0;
   }
 
-  /* Дни месяца — увеличенные тач-таргеты (минимум 40x40px для iOS/Android) */
   .schedule-calendar .sc-day {
     font-size: 15px;
     min-height: 40px;
@@ -1910,14 +1873,12 @@ button:hover {
     transition: all 0.2s ease;
   }
 
-  /* Тактильный отклик при нажатии на день */
   .schedule-calendar .sc-day:active {
     transform: scale(0.9);
     background: #e8e6d9;
   }
 }
 
-/* ═══════════ SCHEDULE SECTION ═══════════ */
 .schedule-section {
   padding: 80px 5%;
   background: #e9eddc;
@@ -1948,19 +1909,18 @@ button:hover {
   margin: 0 auto;
 }
 
-/* ═══════════ Date Navigation  ═══════════ */
 .schedule-section .date-nav {
   display: flex;
   justify-content: center;
   align-items: center;
   margin: 0 auto 48px;
   padding: 16px 36px;
-  /* Элегантный градиентный фон */
+
   background: linear-gradient(145deg, #ffffff 0%, #f4f6ef 100%);
-  /* Тонкая рамка с внутренним свечением */
+
   border: 1px solid rgba(216, 221, 197, 0.6);
-  border-radius: 60px; /* Полностью скругленная "капсула" */
-  /* Многослойная тень для эффекта "парения" и объема */
+  border-radius: 60px;
+
   box-shadow:
     0 10px 24px rgba(92, 94, 67, 0.08),
     0 2px 6px rgba(92, 94, 67, 0.04),
@@ -1971,7 +1931,6 @@ button:hover {
   transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
-/* Легкий подъем капсулы при наведении */
 .schedule-section .date-nav:hover {
   box-shadow:
     0 14px 30px rgba(92, 94, 67, 0.12),
@@ -1980,7 +1939,6 @@ button:hover {
   transform: translateY(-2px);
 }
 
-/* Текст с датой */
 .schedule-section .current-date {
   font-family: "Playfair Display", serif;
   font-size: clamp(17px, 2.5vw, 20px);
@@ -1999,7 +1957,6 @@ button:hover {
   gap: 10px;
 }
 
-/* Миниатюрная SVG-иконка календаря (через псевдоэлемент) */
 .schedule-section .current-date::before {
   content: "";
   display: inline-block;
@@ -2012,7 +1969,6 @@ button:hover {
   transition: transform 0.3s ease;
 }
 
-/* Стрелочка выпадающего списка */
 .schedule-section .current-date::after {
   content: "▼";
   font-size: 8px;
@@ -2024,7 +1980,6 @@ button:hover {
   color: #8e9165;
 }
 
-/* Интерактив при наведении на текст */
 .schedule-section .current-date:hover {
   color: #65743d;
 }
@@ -2039,7 +1994,6 @@ button:hover {
   color: #65743d;
 }
 
-/* Текст с датой */
 .schedule-section .current-date {
   font-family: "Playfair Display", serif;
   font-size: clamp(18px, 3vw, 24px);
@@ -2051,10 +2005,9 @@ button:hover {
   cursor: pointer;
   transition: all 0.25s ease;
   position: relative;
-  letter-spacing: 0.5px; /* Добавляем воздуха между буквами */
+  letter-spacing: 0.5px;
 }
 
-/* Стрелочка выпадающего списка */
 .schedule-section .current-date::after {
   content: "▼";
   font-size: 9px;
@@ -2101,7 +2054,6 @@ button:hover {
   line-height: 1.3;
 }
 
-/* Slots Container - ВАЖНО: flex-wrap для переноса */
 .schedule-section .slots-container {
   display: flex;
   flex-wrap: wrap;
@@ -2260,8 +2212,6 @@ button:hover {
   margin: 0;
 }
 
-/* Карточки без фото имеют ~340px свободного места вместо ~130px —
-   даём им больше пространства, чтобы не обрезать раньше времени. */
 .review-card--no-photo .review-text-wrapper {
   max-height: 340px;
 }
@@ -2283,7 +2233,6 @@ button:hover {
   transition: max-height 0.35s ease;
 }
 
-/* Градиент внизу текста когда он обрезан — только для карточек с длинным текстом */
 .review-card[data-full-text="true"]:not(.expanded) .review-text-wrapper::after {
   content: "";
   position: absolute;
@@ -2291,11 +2240,9 @@ button:hover {
   right: 0;
   bottom: 0;
   height: 40px;
-  background: linear-gradient(
-    to bottom,
-    rgba(248, 248, 241, 0) 0%,
-    #f8f8f1 90%
-  );
+  background: linear-gradient(to bottom,
+      rgba(248, 248, 241, 0) 0%,
+      #f8f8f1 90%);
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
@@ -2336,8 +2283,6 @@ button:hover {
   flex-shrink: 0;
 }
 
-/* Ряд под кнопку-переключатель всегда занимает одну и ту же высоту,
-   видима кнопка или нет — поэтому имя автора никогда не сдвигается. */
 .review-toggle-row {
   display: flex;
   justify-content: center;
@@ -2438,7 +2383,6 @@ button:hover {
   opacity: 1;
 }
 
-/* ───────── Точки переключения отзывов ───────── */
 .reviews-dots {
   display: flex;
   justify-content: center;
@@ -2604,7 +2548,6 @@ button:hover {
   }
 }
 
-/* Toast уведомления (глобально) */
 .toast {
   position: fixed;
   bottom: 30px;
@@ -2683,18 +2626,19 @@ html {
 }
 
 @keyframes sideNavPeekPulse {
+
   0%,
   100% {
     opacity: 0.65;
     transform: translate(-50%, -52%);
   }
+
   50% {
     opacity: 1;
     transform: translate(-46%, -52%);
   }
 }
 
-/* Три точки-гrip под стрелкой */
 .side-nav::before {
   content: "";
   position: absolute;
@@ -2727,8 +2671,7 @@ html {
 .side-nav.open {
   transform: translateY(-50%) translateX(0);
   background:
-    linear-gradient(180deg, #bac4a2 0%, #b0c08b 55%, #b0c08b 100%) left / 4px
-      100% no-repeat,
+    linear-gradient(180deg, #bac4a2 0%, #b0c08b 55%, #b0c08b 100%) left / 4px 100% no-repeat,
     rgba(255, 255, 255, 0.97);
   border-color: #d8ddc5;
   box-shadow: -10px 10px 30px rgba(41, 50, 34, 0.16);
@@ -2779,12 +2722,10 @@ html {
   color: #fff;
 }
 
-/* Подсветка раздела, который сейчас в поле зрения (scroll-spy) */
 .side-nav-link.active {
   opacity: 1;
   background: rgba(142, 145, 101, 0.18);
   color: #4a5a2e;
-
 }
 
 .side-nav-link.active:hover {
@@ -2793,7 +2734,6 @@ html {
   box-shadow: none;
 }
 
-/* ─── Кнопка "Присоединиться" в side-nav ─── */
 .side-nav-career-btn {
   display: inline-flex !important;
   align-items: center;
@@ -2821,12 +2761,10 @@ html {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.2),
-    transparent
-  );
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.2),
+      transparent);
   transition: left 0.6s ease;
 }
 
@@ -2853,13 +2791,11 @@ html {
   stroke: currentColor;
 }
 
-/* Когда side-nav закрыт — кнопка скрыта (как остальные ссылки) */
 .side-nav:not(.open) .side-nav-career-btn {
   opacity: 0 !important;
   pointer-events: none;
 }
 
-/* Когда side-nav открыт — кнопка видна */
 .side-nav.open .side-nav-career-btn {
   opacity: 1 !important;
   color: #fff !important;
@@ -2871,7 +2807,6 @@ html {
   }
 }
 
-/* Мобильная нижняя навигация — ненавязчивая панель для маленьких экранов */
 .mobile-nav {
   display: none;
 }
@@ -2900,6 +2835,7 @@ html {
   .mobile-nav.is-hidden {
     transform: translateY(100%);
   }
+
   .mobile-nav-link {
     display: flex;
     flex-direction: column;
@@ -2948,7 +2884,6 @@ html {
   }
 }
 
-/* Кнопка скрытия/показа мобильной навигации */
 .mobile-nav-toggle {
   display: none;
 }
@@ -3137,21 +3072,18 @@ html {
   }
 }
 
-/* Мобильная адаптация главного логотипа для очень узких экранов */
 @media (max-width: 380px) {
   .logo img {
     height: 106px;
   }
 }
 
-/* Поднимаем уведомление над мобильной нижней навигацией */
 @media (max-width: 700px) {
   .toast {
     bottom: calc(80px + env(safe-area-inset-bottom));
   }
 }
 
-/* ───────── Красивое модальное окно успешной отправки ───────── */
 .success-overlay {
   position: fixed;
   inset: 0;
@@ -3261,7 +3193,6 @@ html {
   box-shadow: 0 10px 30px rgba(142, 145, 101, 0.3);
 }
 
-/* ─── Уведомления: кнопки в success-оверлее (сайт) ─── */
 .notify-prompt {
   margin: 12px 0 8px;
   font-size: 14px;
@@ -3307,7 +3238,6 @@ html {
   color: #8e9165;
 }
 
-/* ─── Мастер селект (кастомный как time-select) ─── */
 .master-select {
   position: relative;
 }
@@ -3415,7 +3345,6 @@ html {
   color: #fff;
 }
 
-/* ─── Комментарий textarea ─── */
 .form-group textarea {
   width: 100%;
   padding: 14px 16px;
@@ -3439,7 +3368,6 @@ html {
   color: #abb3a0;
 }
 
-/* Мобильная адаптация success-модалки */
 @media (max-width: 480px) {
   .success-modal {
     padding: 40px 28px 32px;
@@ -3468,7 +3396,6 @@ html {
   }
 }
 
-/* ─── Career modal (стань частью команды) ─── */
 .modal-content--career {
   max-width: 560px;
   padding: 48px 40px 40px;
@@ -3595,7 +3522,6 @@ html {
   line-height: 1.4;
 }
 
-/* ─── Футер ─── */
 .site-footer {
   background: #bac4a2;
   padding: 35px 20px 25px;
@@ -3661,13 +3587,13 @@ html {
     padding: 16px 32px;
     font-size: 15px;
   }
+
   .site-footer {
     padding: 40px 16px 32px;
   }
 }
 
 @media (max-width: 600px) {
-  /* Career-модалка открывается от центра/сверху, а не снизу как booking */
   .modal:has(.modal-content--career) {
     align-items: center;
     padding: 60px 20px 20px;
@@ -3729,7 +3655,7 @@ html {
 
 @media (max-width: 1024px) {
   .service-category {
-    width: calc(50% - 16px); /* 2 в ряд на планшете */
+    width: calc(50% - 16px);
   }
 }
 
@@ -3737,13 +3663,13 @@ html {
   .services-grid {
     gap: 20px;
   }
+
   .service-category {
-    width: 100%; /* 1 в ряд на мобильном */
+    width: 100%;
     max-width: none;
   }
 }
 
-/* ─── Hover / focus ─── */
 .show-today-btn:hover,
 .show-today-btn:focus-visible {
   transform: translateY(-4px) scale(1.035);
@@ -3753,7 +3679,6 @@ html {
     0 22px 48px rgba(101, 116, 61, 0.42);
 }
 
-/* Пятно становится ярче и шире, «дыхание» останавливается */
 .show-today-btn:hover::before,
 .show-today-btn:focus-visible::before {
   animation: none;
@@ -3766,16 +3691,15 @@ html {
   animation: todayBtnSweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* Тактильный отклик при нажатии */
 .show-today-btn:active {
   transform: translateY(-1px) scale(0.99);
 }
 
-/* ─── Мобильная адаптация ─── */
 @media (max-width: 700px) {
   .show-today-hint {
     margin-bottom: 26px;
   }
+
   .show-today-btn {
     padding: 17px 40px;
     font-size: 14px;
@@ -3784,8 +3708,8 @@ html {
   }
 }
 
-/* Уважение к настройкам пользователя */
 @media (prefers-reduced-motion: reduce) {
+
   .show-today-wrap,
   .show-today-btn,
   .show-today-btn::before {
@@ -3793,9 +3717,6 @@ html {
   }
 }
 
-/* ═══════════ HERO-BTN ═══════════ */
-
-/* Бликовый слой (span создаётся в script.js) */
 .hero-btn-shine {
   position: absolute;
   inset: 0;
@@ -3803,6 +3724,7 @@ html {
   overflow: hidden;
   pointer-events: none;
 }
+
 .hero-btn-shine::after {
   content: "";
   position: absolute;
@@ -3810,42 +3732,38 @@ html {
   bottom: -30%;
   left: -70%;
   width: 45%;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.4) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(105deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.4) 50%,
+      transparent 100%);
   transform: skewX(-22deg);
 }
+
 .hero-btn:hover .hero-btn-shine::after {
   animation: heroBtnSweep 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* Лёгкое парение в спокойном состоянии (только пока не FAB) */
 .hero-booking-group:not(.has-fixed) {
   animation: heroBtnFloat 5.5s ease-in-out infinite;
 }
 
-/* Тактильный отклик при нажатии */
 .hero-btn:active {
   transform: translateY(-1px) scale(0.99);
 }
 
-/* FAB-режим (кружок «+» при скролле): без пятна и переливания,
-   иначе эффекты сломают морф и выпадающее меню */
-.hero-btn.hero-btn-fixed {
+иначе эффекты сломают морф и выпадающее меню */ .hero-btn.hero-btn-fixed {
   animation: none;
   background-size: 100% 100%;
 }
+
 .hero-btn.hero-btn-fixed::after {
   content: none;
 }
+
 .hero-btn.hero-btn-fixed:hover {
   transform: translateY(-2px);
 }
 
-/* Соседние кнопки выпадающего меню — в рост новой кнопки */
 @media (hover: hover) {
   .hero-btn-split-item {
     height: 60px;
@@ -3853,13 +3771,12 @@ html {
     letter-spacing: 1.8px;
     text-transform: uppercase;
   }
-  /* В FAB-режиме кружок 56px — соседние кнопки вровень с ним */
+
   .hero-booking-group.has-fixed .hero-btn-split-item {
     height: 56px;
   }
 }
 
-/* Мобильная адаптация */
 @media (max-width: 700px) {
   .hero-btn {
     height: 56px;
@@ -3869,12 +3786,13 @@ html {
   }
 }
 
-/* ─── Анимации ─── */
 @keyframes heroBtnFloat {
+
   0%,
   100% {
     transform: translateY(0);
   }
+
   50% {
     transform: translateY(-4px);
   }
@@ -3884,19 +3802,19 @@ html {
   from {
     left: -70%;
   }
+
   to {
     left: 140%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .hero-btn,
   .hero-booking-group:not(.has-fixed) {
     animation: none;
   }
 }
-
-/* ═══════════ Адаптация master-card под service-category ═══════════ */
 
 .schedule-section .masters-grid {
   display: flex;
@@ -3916,21 +3834,18 @@ html {
   border-radius: 16px;
 }
 
-/* Чтобы состояния загрузки/ошибки занимали всю ширину */
 .schedule-section .loading-state {
   width: 100%;
   flex: 0 0 100%;
   grid-column: auto;
 }
 
-/* Планшет: 2 карточки в ряд */
 @media (max-width: 1024px) {
   .schedule-section .master-card {
     width: calc(50% - 16px);
   }
 }
 
-/* Мобильные: чуть уменьшаем отступы */
 @media (max-width: 768px) {
   .schedule-section .masters-grid {
     gap: 24px;
@@ -3941,7 +3856,6 @@ html {
   }
 }
 
-/* Узкие мобильные: 1 карточка в ряд */
 @media (max-width: 640px) {
   .schedule-section .masters-grid {
     gap: 20px;
@@ -3955,25 +3869,18 @@ html {
   }
 }
 
-/* ═══════════ FIX: hero-btn-fixed + мягкий перелив hero-btn ═══════════ */
-
-/* Обычная hero-btn: мягкий, неяркий градиентный перелив */
 .hero-btn {
   overflow: hidden;
   background:
-    linear-gradient(
-      120deg,
+    linear-gradient(120deg,
       rgba(255, 255, 255, 0.07) 0%,
-      rgba(255, 255, 255, 0) 38%
-    ),
-    linear-gradient(
-      115deg,
+      rgba(255, 255, 255, 0) 38%),
+    linear-gradient(115deg,
       #7b8452 0%,
       #8e9165 26%,
       #a2ac7a 50%,
       #8a9260 74%,
-      #6e7847 100%
-    );
+      #6e7847 100%);
   background-size:
     100% 100%,
     230% 100%;
@@ -3994,7 +3901,6 @@ html {
     0 14px 30px rgba(92, 94, 67, 0.26);
 }
 
-/* Убираем старые слишком активные блики/пятна */
 .hero-btn::after,
 .hero-btn.hero-btn-fixed::after {
   content: none;
@@ -4005,7 +3911,6 @@ html {
   opacity: 0;
 }
 
-/* Фиксированная кнопка "+" */
 .hero-btn.hero-btn-fixed {
   width: 56px !important;
   height: 56px !important;
@@ -4040,14 +3945,15 @@ html {
   line-height: 1;
 }
 
-/* Плавные анимации перелива */
 @keyframes heroSoftGradient {
+
   0%,
   100% {
     background-position:
       0 0,
       0% 50%;
   }
+
   50% {
     background-position:
       0 0,
@@ -4056,17 +3962,19 @@ html {
 }
 
 @keyframes heroFixedSoftGradient {
+
   0%,
   100% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
   }
 }
 
-/* Уважение к reduced motion */
 @media (prefers-reduced-motion: reduce) {
+
   .hero-btn,
   .hero-btn.hero-btn-fixed,
   .hero-booking-group:not(.has-fixed) {
@@ -4074,17 +3982,14 @@ html {
   }
 }
 
-/* ═══════════ FIX: hero-btn-split вертикально на мобильном / тач-устройствах ═══════════ */
-
-@media (max-width: 700px), (hover: none) {
-  /* Общий split на мобильных — вертикально */
+@media (max-width: 700px),
+(hover: none) {
   .hero-booking-group .hero-btn-split {
     flex-direction: column !important;
     align-items: flex-end !important;
     gap: 8px !important;
   }
 
-  /* Сами кнопки внутри списка */
   .hero-booking-group.has-fixed .hero-btn-split-item {
     width: auto !important;
     min-width: 200px !important;
@@ -4107,7 +4012,6 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Мобильное / тач-состояние: меню выпадает вверх, без hover-открытия */
 @media (max-width: 700px) {
   .mobile-nav-toggle {
     left: 14px !important;
@@ -4127,8 +4031,6 @@ html {
     will-change: bottom;
   }
 }
-
-/* ═══════════ Custom page scrollbar ═══════════ */
 
 html.custom-scroll,
 html.custom-scroll body {
@@ -4182,29 +4084,22 @@ html.custom-scroll body::-webkit-scrollbar {
 }
 
 .side-nav {
-  /* Насколько полоска видна в закрытом состоянии.
-     Было 22px, стало 16px. Можно поставить 14px, если нужно ещё уже. */
   --side-nav-peek: 16px;
 
   transform: translateY(-50%) translateX(calc(-100% + var(--side-nav-peek)));
 
-  /* Чуть уменьшаем внутренние отступы */
   padding: 16px 10px 16px 6px;
 
   background:
-    linear-gradient(
-      180deg,
+    linear-gradient(180deg,
       rgba(255, 255, 255, 0.08) 0%,
-      rgba(194, 231, 173, 0) 40%
-    ),
-    linear-gradient(
-      180deg,
+      rgba(194, 231, 173, 0) 40%),
+    linear-gradient(180deg,
       #bac4a2 0%,
       #bdc092 26%,
       #b6bf93 50%,
       #b4bb8f 74%,
-      #bac4a2 100%
-    );
+      #bac4a2 100%);
 
   background-size:
     100% 100%,
@@ -4219,24 +4114,19 @@ html.custom-scroll body::-webkit-scrollbar {
   animation: sideNavVerticalSheen 12s ease-in-out infinite;
 }
 
-/* Если нужно, чтобы открытая панель тоже была в этом переливе */
 .side-nav.open {
   transform: translateY(-50%) translateX(0);
 
   background:
-    linear-gradient(
-      180deg,
+    linear-gradient(180deg,
       rgba(255, 255, 255, 0.08) 0%,
-      rgba(255, 255, 255, 0) 40%
-    ),
-    linear-gradient(
-      180deg,
+      rgba(255, 255, 255, 0) 40%),
+    linear-gradient(180deg,
       #7b8452 0%,
       #8e9165 26%,
       #a2ac7a 50%,
       #8a9260 74%,
-      #6e7847 100%
-    );
+      #6e7847 100%);
 
   background-size:
     100% 100%,
@@ -4255,20 +4145,17 @@ html.custom-scroll body::-webkit-scrollbar {
     inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
-/* Делаем пункты чуть компактнее */
 .side-nav-link {
   padding: 8px 10px 8px 8px;
   font-size: 12px;
   letter-spacing: 0.6px;
 }
 
-/* Кнопка "Присоединиться" тоже чуть компактнее */
 .side-nav-career-btn {
   padding: 9px 10px 9px 9px !important;
   font-size: 11px !important;
 }
 
-/* Если открытая панель тёмная, ссылки должны быть светлыми */
 .side-nav.open .side-nav-link {
   color: #fff;
   opacity: 0.82;
@@ -4283,7 +4170,6 @@ html.custom-scroll body::-webkit-scrollbar {
 .side-nav.open .side-nav-link.active {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
-
 }
 
 .side-nav.open .side-nav-career-btn {
@@ -4296,8 +4182,8 @@ html.custom-scroll body::-webkit-scrollbar {
   background: rgba(255, 255, 255, 0.24) !important;
 }
 
-/* Вертикальный перелив */
 @keyframes sideNavVerticalSheen {
+
   0%,
   100% {
     background-position:
@@ -4313,20 +4199,13 @@ html.custom-scroll body::-webkit-scrollbar {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .side-nav,
   .side-nav.open {
     animation: none;
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   FINAL OVERRIDES — hero-btn-split
-   ═══════════════════════════════════════════════════════════════ */
-
-/* 1) Обычный (не фиксированный) hero-btn-split: раскрывается у левого
-   края блока .hero-text.
-   Группа растянута на всю ширину hero-text, кнопка прижата к левому
-   краю (flex-start), а меню позиционируется от левого края (left:0). */
 @media (hover: hover) {
   .hero-booking-group:not(.has-fixed) {
     width: 100% !important;
@@ -4344,24 +4223,17 @@ html.custom-scroll body::-webkit-scrollbar {
       transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* Сбрасываем старый центрирующий transform при hover на группе */
   .hero-booking-group:not(.has-fixed):hover .hero-btn-split {
     transform: translateY(-50%) scale(0.88);
   }
 
   .hero-booking-group:not(.has-fixed):has(.hero-btn:hover) .hero-btn-split,
-  .hero-booking-group:not(.has-fixed):has(.hero-btn-split:hover)
-    .hero-btn-split,
+  .hero-booking-group:not(.has-fixed):has(.hero-btn-split:hover) .hero-btn-split,
   .hero-booking-group:not(.has-fixed):focus-within .hero-btn-split {
     transform: translateY(-50%) scale(1);
   }
 }
 
-/* 2) Фиксированный hero-btn-split (FAB «+» внизу справа): выпадает
-   по правому краю экрана — прижат к правому краю, вертикальный
-   столбец, раскрывается вверх от кнопки вдоль края экрана.
-
-   Сама группа с FAB-кнопкой прижата к правому нижнему углу окна. */
 .hero-booking-group.has-fixed {
   position: fixed !important;
   right: 24px !important;
@@ -4373,7 +4245,6 @@ html.custom-scroll body::-webkit-scrollbar {
   align-items: center;
 }
 
-/* Мобильные: FAB-кнопка чуть ближе к краю */
 @media (max-width: 700px) {
   .hero-booking-group.has-fixed {
     right: 14px !important;
@@ -4419,7 +4290,6 @@ html.custom-scroll body::-webkit-scrollbar {
   transform: var(--split-visible) !important;
 }
 
-/* Элементы меню фиксированной кнопки — автоширина, правый край */
 .hero-booking-group.has-fixed .hero-btn-split-item {
   width: auto !important;
   min-width: 200px !important;
@@ -4430,7 +4300,6 @@ html.custom-scroll body::-webkit-scrollbar {
   justify-content: center;
 }
 
-/* 3) Более чёткий шрифт в выпадающем меню hero-btn-split (обычный режим) */
 .hero-booking-group:not(.has-fixed) .hero-btn-split-item {
   font-family: "Cormorant Garamond", serif;
   font-size: 16px;
@@ -4442,15 +4311,12 @@ html.custom-scroll body::-webkit-scrollbar {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-/* 4) Уменьшенная FAB-кнопка «+» и компактное меню в FAB-режиме */
 .hero-booking-group.has-fixed .hero-btn.hero-btn-fixed {
   width: 48px !important;
   height: 48px !important;
   min-width: 48px;
 }
 
-/* Полноценный стиль иконки «+» — перебивает любые ранние правила,
-   гарантирует центрирование и чистый белый цвет символа */
 .hero-booking-group.has-fixed .hero-btn.hero-btn-fixed::before {
   content: "+";
   position: absolute;
@@ -4476,7 +4342,6 @@ html.custom-scroll body::-webkit-scrollbar {
   border-radius: 12px !important;
 }
 
-/* 5) Мобильные: FAB-меню — крупнее, Cormorant Garamond, uppercase */
 @media (max-width: 700px) {
   .hero-booking-group.has-fixed .hero-btn-split-item {
     font-family: "Cormorant Garamond", serif !important;
@@ -4486,14 +4351,11 @@ html.custom-scroll body::-webkit-scrollbar {
     text-transform: uppercase;
   }
 
-  /* Обычное hero-меню на мобильных — шрифт меньше, чем на десктопе */
   .hero-booking-group:not(.has-fixed) .hero-btn-split-item {
     font-size: 13px !important;
     letter-spacing: 0.6px !important;
   }
 
-  /* Обычное hero-меню на мобильных выравнивается по правому краю
-     кнопки hero-btn (а не по левому/центру) */
   .hero-booking-group:not(.has-fixed) .hero-btn-split {
     left: auto !important;
     right: 0 !important;

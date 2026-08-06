@@ -21,12 +21,11 @@ class BookingService:
     def __init__(self, api_base: str = "http://localhost:5000"):
         self.api_base = api_base
 
-    # ─── Загрузка данных ───
-
     def load_categories(self) -> List[Dict]:
         """Загрузить категории услуг из YClients."""
         try:
-            resp = requests.get(f"{self.api_base}/api/yclients/categories", timeout=10)
+            resp = requests.get(f"{self.api_base}/api/yclients/categories",
+                                timeout=10)
             if resp.status_code == 200:
                 return resp.json()
         except Exception as e:
@@ -37,7 +36,9 @@ class BookingService:
         """Загрузить услуги из YClients (опционально по категории)."""
         try:
             params = {"category_id": category_id} if category_id else {}
-            resp = requests.get(f"{self.api_base}/api/yclients/services", params=params, timeout=10)
+            resp = requests.get(f"{self.api_base}/api/yclients/services",
+                                params=params,
+                                timeout=10)
             if resp.status_code == 200:
                 return resp.json()
         except Exception as e:
@@ -48,20 +49,18 @@ class BookingService:
         """Загрузить мастеров из YClients (опционально для услуги)."""
         try:
             params = {"service_id": service_id} if service_id else {}
-            resp = requests.get(f"{self.api_base}/api/yclients/staff", params=params, timeout=10)
+            resp = requests.get(f"{self.api_base}/api/yclients/staff",
+                                params=params,
+                                timeout=10)
             if resp.status_code == 200:
                 return resp.json()
         except Exception as e:
             logger.warning(f"Ошибка загрузки мастеров: {e}")
         return []
 
-    def _fetch_available_dates_for_month(
-        self,
-        service_id: str,
-        staff_id: Optional[str],
-        year: int,
-        month: int
-    ) -> Optional[set]:
+    def _fetch_available_dates_for_month(self, service_id: str,
+                                         staff_id: Optional[str], year: int,
+                                         month: int) -> Optional[set]:
         """Один вызов /api/yclients/available-dates за конкретный месяц.
 
         Возвращает set ISO-дат ("YYYY-MM-DD") со свободными слотами,
@@ -83,17 +82,16 @@ class BookingService:
                 if isinstance(data, list):
                     return {str(d) for d in data}
             logger.warning(
-                f"available-dates: HTTP {resp.status_code} - {resp.text[:200]}")
+                f"available-dates: HTTP {resp.status_code} - {resp.text[:200]}"
+            )
         except Exception as e:
             logger.error(f"Ошибка при получении доступных дат: {e}")
         return None
 
-    def load_available_dates(
-        self,
-        service_id: str,
-        staff_id: Optional[str] = None,
-        days: int = 14
-    ) -> Optional[List[str]]:
+    def load_available_dates(self,
+                             service_id: str,
+                             staff_id: Optional[str] = None,
+                             days: int = 14) -> Optional[List[str]]:
         """
         Получить список доступных дат — только тех, на которые есть хотя
         бы один свободный слот (через /api/yclients/available-dates,
@@ -114,7 +112,6 @@ class BookingService:
         today = date.today()
         end = today + timedelta(days=days - 1)
 
-        # Собираем все месяцы, которые попадают в диапазон
         months = []
         cur = today.replace(day=1)
         end_month = end.replace(day=1)
@@ -145,12 +142,8 @@ class BookingService:
 
         return dates
 
-    def load_available_times(
-        self,
-        service_id: str,
-        staff_id: str,
-        date_str: str
-    ) -> List[str]:
+    def load_available_times(self, service_id: str, staff_id: str,
+                             date_str: str) -> List[str]:
         """
         Получить доступное время для записи.
 
@@ -162,7 +155,7 @@ class BookingService:
         Returns:
             Список временных слотов (например ["10:00", "10:15", ...])
         """
-        # Конвертируем ДД.ММ.ГГГГ → ГГГГ-ММ-ДД
+
         parts = date_str.split(".")
         if len(parts) == 3 and len(parts[2]) == 4:
             iso_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
@@ -178,15 +171,17 @@ class BookingService:
             resp = requests.get(
                 f"{self.api_base}/api/yclients/available-times",
                 params=params,
-                timeout=10
-            )
+                timeout=10)
 
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list):
                     if len(data) > 0 and isinstance(data[0], dict):
-                        # Фильтруем только доступные слоты
-                        return [s["time"] for s in data if s.get("available", True)]
+
+                        return [
+                            s["time"] for s in data
+                            if s.get("available", True)
+                        ]
                     return data
         except Exception as e:
             logger.error(f"Ошибка получения времени: {e}")
@@ -194,20 +189,19 @@ class BookingService:
         return []
 
     def create_booking(
-        self,
-        client_name: str,
-        client_phone: str,
-        service: str,
-        booking_date: str,  # ДД.ММ.ГГГГ
-        booking_time: str,
-        comment: str = "",
-        yclients_service_id: Optional[str] = None,
-        yclients_staff_id: Optional[str] = None,
-        assigned_employee_name: Optional[str] = None,
-        telegram_id: Optional[str] = None,
-        vk_id: Optional[str] = None,
-        source: str = "bot"
-    ) -> Tuple[bool, Optional[int], Optional[str]]:
+            self,
+            client_name: str,
+            client_phone: str,
+            service: str,
+            booking_date: str,  # ДД.ММ.ГГГГ
+            booking_time: str,
+            comment: str = "",
+            yclients_service_id: Optional[str] = None,
+            yclients_staff_id: Optional[str] = None,
+            assigned_employee_name: Optional[str] = None,
+            telegram_id: Optional[str] = None,
+            vk_id: Optional[str] = None,
+            source: str = "bot") -> Tuple[bool, Optional[int], Optional[str]]:
         """
         Создать запись через API бэкенда.
 
@@ -228,7 +222,7 @@ class BookingService:
         Returns:
             (success, booking_id, error_message)
         """
-        # Конвертируем дату в ISO формат
+
         parts = booking_date.split(".")
         if len(parts) == 3 and len(parts[2]) == 4:
             iso_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
@@ -256,15 +250,12 @@ class BookingService:
         if vk_id:
             payload["vk_id"] = vk_id
 
-        # Не дублируем уведомления — они идут только по подписке
         payload["no_notify"] = True
 
         try:
-            resp = requests.post(
-                f"{self.api_base}/api/bookings",
-                json=payload,
-                timeout=15
-            )
+            resp = requests.post(f"{self.api_base}/api/bookings",
+                                 json=payload,
+                                 timeout=15)
 
             if resp.status_code == 201:
                 resp_json = resp.json()
@@ -281,11 +272,11 @@ class BookingService:
             return False, None, "Ошибка соединения с сервером"
 
 
-# Глобальный экземпляр сервиса
 _booking_service_instance: Optional[BookingService] = None
 
 
-def get_booking_service(api_base: str = "http://localhost:5000") -> BookingService:
+def get_booking_service(
+        api_base: str = "http://localhost:5000") -> BookingService:
     """Получить или создать экземпляр сервиса записей."""
     global _booking_service_instance
     if _booking_service_instance is None:
