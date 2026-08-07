@@ -738,7 +738,7 @@ async def show_contacts(query, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🏠 <b>Адрес:</b> г. Строитель, ул. Октябрьская, 15\n"
         "🕐 <b>Режим работы:</b> Ежедневно 10:00–20:00\n"
         "📞 <b>Телефон:</b> +7 (915) 526-50-56\n"
-        "🔗 <b>Сайт:</b>https://beauty-verbena.ru\n\n"
+        "🔗 <b>Сайт:</b> https://beauty-verbena.ru\n\n"
         "🌐 <b>Мы в соцсетях:</b>\n"
         "• <a href='https://vk.ru/verbena.studio31'>ВКонтакте</a>\n"
         "• <a href='https://t.me/verbenastudio31'>Telegram</a>\n"
